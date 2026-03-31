@@ -1,0 +1,202 @@
+.server-manager {
+  height: 100%;
+  overflow: auto;
+  padding: 24px;
+}
+
+.sm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.sm-header h2 {
+  color: var(--text-bright);
+  font-size: 18px;
+}
+
+.sm-add-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  background: var(--accent);
+  border: none;
+  color: white;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.sm-add-btn:hover {
+  background: var(--accent-hover);
+}
+
+/* Form */
+.sm-form {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.sm-form h3 {
+  color: var(--text-bright);
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.form-grid input {
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 3px;
+}
+
+.form-grid input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  background: var(--accent);
+  border: none;
+  color: white;
+  border-radius: 3px;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+}
+
+.btn-secondary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 3px;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
+}
+
+/* Server List */
+.sm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sm-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 48px;
+}
+
+.sm-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.sm-card-name {
+  font-weight: 600;
+  color: var(--text-bright);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sm-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  font-weight: normal;
+}
+
+.sm-card-details {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.sm-test-result {
+  font-size: 12px;
+  margin-top: 6px;
+  padding: 2px 0;
+}
+
+.sm-test-result.success {
+  color: var(--success);
+}
+
+.sm-test-result.error {
+  color: var(--error);
+}
+
+.sm-card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.sm-icon-btn {
+  padding: 6px;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+}
+
+.sm-icon-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.sm-icon-btn.danger:hover {
+  color: var(--error);
+  border-color: var(--error);
+}

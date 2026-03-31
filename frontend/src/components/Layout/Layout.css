@@ -1,0 +1,135 @@
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Top Bar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.topbar-title {
+  font-weight: 600;
+  color: var(--text-bright);
+  font-size: 14px;
+}
+
+.topbar-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.tab-btn {
+  padding: 6px 14px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+
+.tab-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.tab-btn.active {
+  color: var(--text-bright);
+  border-bottom-color: var(--accent);
+}
+
+.tab-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+.user-name {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.logout-btn {
+  padding: 4px 10px;
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.logout-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Main Content */
+.main-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.split-horizontal {
+  display: flex;
+  height: 100%;
+}
+
+.gutter {
+  background-color: var(--border-color);
+  cursor: col-resize;
+}
+
+.gutter:hover {
+  background-color: var(--accent);
+}
+
+.panel-left {
+  overflow: auto;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+}
+
+.panel-right {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Status Bar */
+.statusbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 24px;
+  padding: 0 12px;
+  background: var(--accent);
+  color: white;
+  font-size: 12px;
+  flex-shrink: 0;
+}

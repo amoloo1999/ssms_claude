@@ -1,0 +1,74 @@
+.object-explorer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.explorer-header {
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.explorer-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.explorer-empty {
+  padding: 24px 16px;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.tree-node:hover {
+  background: var(--bg-hover);
+}
+
+.tree-node.active {
+  background: var(--bg-active);
+  color: var(--text-bright);
+}
+
+.tree-arrow {
+  width: 16px;
+  font-size: 8px;
+  text-align: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.tree-icon {
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-loading {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-left: 4px;
+}

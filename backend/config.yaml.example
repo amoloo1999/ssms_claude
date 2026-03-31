@@ -1,0 +1,18 @@
+# SQL Server connections seed configuration
+# These servers will be automatically added on first startup.
+# Users can also add/edit/remove servers through the web UI.
+
+servers:
+  - name: "Example Server"
+    host: "your-sql-server-host"
+    port: 1433
+    username: "your-username"
+    password: "your-password"
+    description: "Example SQL Server"
+
+# Google OAuth settings (override via environment variables)
+# GOOGLE_CLIENT_ID: "your-client-id.apps.googleusercontent.com"
+# GOOGLE_CLIENT_SECRET: "your-client-secret"
+
+# Allowed email domain for Google OAuth (leave empty to allow all)
+# allowed_domain: "yourcompany.com"

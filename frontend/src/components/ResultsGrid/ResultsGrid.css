@@ -1,0 +1,18 @@
+.results-grid {
+  height: 100%;
+  width: 100%;
+}
+
+.results-grid .ag-root-wrapper {
+  border: none;
+}
+
+.results-grid .ag-header {
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.results-grid .ag-cell {
+  font-size: 12px;
+  font-family: 'Consolas', 'Courier New', monospace;
+}

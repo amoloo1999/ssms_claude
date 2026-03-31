@@ -1,0 +1,147 @@
+.table-browser {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.table-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.table-name {
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.table-db {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.table-count {
+  color: var(--success);
+  font-size: 12px;
+}
+
+.table-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.action-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* Schema Panel */
+.schema-panel {
+  max-height: 280px;
+  overflow: auto;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 12px;
+}
+
+.schema-section {
+  margin-bottom: 16px;
+}
+
+.schema-section h3 {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.schema-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.schema-table th {
+  text-align: left;
+  padding: 4px 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.schema-table td {
+  padding: 4px 12px;
+  border: 1px solid var(--border-color);
+}
+
+/* Data */
+.table-data {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.table-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.pagination button {
+  padding: 4px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.pagination button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pagination span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
