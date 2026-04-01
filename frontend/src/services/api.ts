@@ -94,19 +94,34 @@ export const insertRow = (serverId: number, database: string, schema: string, ta
 // ── Export ──
 
 export const exportData = async (serverId: number, database: string, sql: string, format: string) => {
-  const response = await api.post(
-    '/api/export/download',
-    { server_id: serverId, database, sql, format },
-    { responseType: 'blob' }
-  );
-  const url = window.URL.createObjectURL(new Blob([response.data]));
-  const link = document.createElement('a');
-  link.href = url;
-  link.setAttribute('download', `export.${format}`);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
+  try {
+    const response = await api.post(
+      '/api/export/download',
+      { server_id: serverId, database, sql, format },
+      { responseType: 'blob' }
+    );
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `export.${format}`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (err: any) {
+    const detail = err.response?.data;
+    if (detail instanceof Blob) {
+      const text = await detail.text();
+      try {
+        const json = JSON.parse(text);
+        throw new Error(json.detail || json.error || text);
+      } catch (parseErr) {
+        if (parseErr instanceof SyntaxError) throw new Error(text);
+        throw parseErr;
+      }
+    }
+    throw new Error(detail?.detail || err.message);
+  }
 };
 
 export default api;

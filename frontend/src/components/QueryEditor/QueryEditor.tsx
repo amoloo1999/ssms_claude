@@ -101,7 +101,11 @@ function QueryEditor({ ctx }: Props) {
 
   const handleExport = async (format: 'csv' | 'xlsx') => {
     if (!selectedServer || !selectedDb || !sql) return;
-    await exportData(selectedServer, selectedDb, sql, format);
+    try {
+      await exportData(selectedServer, selectedDb, sql, format);
+    } catch (err: any) {
+      alert('Export failed: ' + err.message);
+    }
   };
 
   const handleEditorMount = (editor: any) => {

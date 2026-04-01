@@ -53,7 +53,11 @@ function TableBrowser({ ctx }: Props) {
 
   const handleExport = async (format: 'csv' | 'xlsx') => {
     const sql = `SELECT * FROM [${t.schema}].[${t.table}]`;
-    await exportData(t.serverId, t.database, sql, format);
+    try {
+      await exportData(t.serverId, t.database, sql, format);
+    } catch (err: any) {
+      alert('Export failed: ' + err.message);
+    }
   };
 
   const pkColumns = columns.filter((c) => c.is_primary_key).map((c) => c.name);

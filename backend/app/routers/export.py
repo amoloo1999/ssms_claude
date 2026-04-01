@@ -1,6 +1,6 @@
 import io
 import pandas as pd
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
@@ -23,7 +23,7 @@ async def export_data(
     result = execute_query(conn_str, export_req.sql)
 
     if result["error"]:
-        return {"error": result["error"]}
+        raise HTTPException(status_code=400, detail=result["error"])
 
     df = pd.DataFrame(result["rows"], columns=result["columns"])
 
