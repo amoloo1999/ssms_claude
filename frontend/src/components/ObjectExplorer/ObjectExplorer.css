@@ -73,6 +73,16 @@
   margin-left: 4px;
 }
 
+.tree-node.column-node {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.tree-node.column-node .tree-icon {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
 /* Rename Input */
 .rename-input {
   background: var(--bg-primary);

@@ -61,7 +61,7 @@ export interface User {
 export interface TreeNode {
   id: string;
   label: string;
-  type: 'server' | 'database' | 'folder' | 'table' | 'view' | 'procedure' | 'function';
+  type: 'server' | 'database' | 'folder' | 'table' | 'view' | 'procedure' | 'function' | 'column';
   children?: TreeNode[];
   data?: any;
   isLoading?: boolean;

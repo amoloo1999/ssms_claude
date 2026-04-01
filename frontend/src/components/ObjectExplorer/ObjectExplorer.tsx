@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { AppContext } from '../../App';
 import { getDatabases, getTables, getViews, getProcedures, getFunctions, getTableColumns, getTableIndexes, executeQuery } from '../../services/api';
 import { Server, TreeNode, ColumnInfo, IndexInfo } from '../../types';
-import { VscDatabase, VscServer, VscTable, VscSymbolMethod, VscSymbolMisc, VscFolder, VscEye } from 'react-icons/vsc';
+import { VscDatabase, VscServer, VscTable, VscSymbolMethod, VscSymbolMisc, VscFolder, VscEye, VscSymbolField } from 'react-icons/vsc';
 import './ObjectExplorer.css';
 
 interface Props {
@@ -130,6 +130,15 @@ function ObjectExplorer({ ctx }: Props) {
           data: { serverId, database, schema: f.schema, name: f.name },
         }));
       }
+    } else if (node.type === 'table') {
+      const { serverId, database, schema, name } = node.data;
+      const result = await getTableColumns(serverId, database, schema, name);
+      children = (result.columns || []).map((col: any) => ({
+        id: `col-${serverId}-${database}-${schema}.${name}-${col.name}`,
+        label: `${col.name} (${col.data_type}${col.max_length ? `(${col.max_length})` : ''}${col.is_nullable ? ', null' : ', not null'}${col.is_primary_key ? ', PK' : ''})`,
+        type: 'column' as const,
+        data: col,
+      }));
     }
 
     return children;
@@ -319,12 +328,13 @@ function ObjectExplorer({ ctx }: Props) {
       case 'view': return <VscEye />;
       case 'procedure': return <VscSymbolMethod />;
       case 'function': return <VscSymbolMisc />;
+      case 'column': return <VscSymbolField />;
       default: return null;
     }
   };
 
   const hasChildren = (node: TreeNode) =>
-    node.type === 'server' || node.type === 'database' || node.type === 'folder';
+    node.type === 'server' || node.type === 'database' || node.type === 'folder' || node.type === 'table';
 
   const renderNode = (node: TreeNode, depth: number = 0) => {
     const isExpanded = expandedNodes.has(node.id);
@@ -336,7 +346,7 @@ function ObjectExplorer({ ctx }: Props) {
     return (
       <div key={node.id}>
         <div
-          className={`tree-node ${ctx.activeTable && node.type === 'table' &&
+          className={`tree-node ${node.type === 'column' ? 'column-node' : ''} ${ctx.activeTable && node.type === 'table' &&
             node.data.serverId === ctx.activeTable.serverId &&
             node.data.database === ctx.activeTable.database &&
             node.data.schema === ctx.activeTable.schema &&
