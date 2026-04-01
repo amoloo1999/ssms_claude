@@ -51,7 +51,10 @@ async def seed_servers_from_config():
                     from_config=True,
                 )
             )
-        await db.commit()
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()  # another worker already seeded
 
 
 @asynccontextmanager

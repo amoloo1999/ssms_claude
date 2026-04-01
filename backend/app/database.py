@@ -21,10 +21,12 @@ async def get_db() -> AsyncSession:
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migration: add owner_email column if missing
-        try:
-            await conn.execute(
-                sqlalchemy.text("ALTER TABLE server_connections ADD COLUMN owner_email VARCHAR")
-            )
-        except Exception:
-            pass  # column already exists
+        # Migrations
+        for migration in [
+            "ALTER TABLE server_connections ADD COLUMN owner_email VARCHAR",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_server_host_port_config ON server_connections(host, port) WHERE from_config = 1",
+        ]:
+            try:
+                await conn.execute(sqlalchemy.text(migration))
+            except Exception:
+                pass
