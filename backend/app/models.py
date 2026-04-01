@@ -21,6 +21,7 @@ class ServerConnection(Base):
     password = Column(String, nullable=False)  # encrypted in production
     description = Column(String, default="")
     from_config = Column(Boolean, default=False)
+    owner_email = Column(String, nullable=True)  # null = shared (from config)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -65,6 +66,7 @@ class ServerConnectionResponse(BaseModel):
     username: str
     description: str
     from_config: bool
+    owner_email: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 

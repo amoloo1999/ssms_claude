@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from starlette.requests import Request
 from app.database import get_db
 from app.models import (
@@ -21,8 +21,16 @@ async def list_servers(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    # Show shared servers (from_config) + user's own servers
     result = await db.execute(
-        select(ServerConnection).order_by(ServerConnection.name)
+        select(ServerConnection)
+        .where(
+            or_(
+                ServerConnection.from_config == True,
+                ServerConnection.owner_email == user["email"],
+            )
+        )
+        .order_by(ServerConnection.name)
     )
     return result.scalars().all()
 
@@ -34,7 +42,11 @@ async def create_server(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    db_server = ServerConnection(**server.model_dump(), from_config=False)
+    db_server = ServerConnection(
+        **server.model_dump(),
+        from_config=False,
+        owner_email=user["email"],
+    )
     db.add(db_server)
     await db.commit()
     await db.refresh(db_server)
@@ -54,6 +66,9 @@ async def get_server(
     server = result.scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
+    # Allow access to shared servers or own servers
+    if not server.from_config and server.owner_email != user["email"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     return server
 
 
@@ -71,6 +86,10 @@ async def update_server(
     server = result.scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
+    if server.from_config:
+        raise HTTPException(status_code=403, detail="Cannot edit shared servers")
+    if server.owner_email != user["email"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     for key, value in update.model_dump(exclude_unset=True).items():
         setattr(server, key, value)
@@ -93,6 +112,10 @@ async def delete_server(
     server = result.scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
+    if server.from_config:
+        raise HTTPException(status_code=403, detail="Cannot delete shared servers")
+    if server.owner_email != user["email"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     await db.delete(server)
     await db.commit()

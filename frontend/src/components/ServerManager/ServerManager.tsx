@@ -189,7 +189,7 @@ function ServerManager({ ctx }: Props) {
               <div className="sm-card-info">
                 <div className="sm-card-name">
                   {server.name}
-                  {server.from_config && <span className="sm-badge">config</span>}
+                  {server.from_config && <span className="sm-badge">shared</span>}
                 </div>
                 <div className="sm-card-details">
                   {server.host}:{server.port} &middot; {server.username}
@@ -205,12 +205,16 @@ function ServerManager({ ctx }: Props) {
                 <button className="sm-icon-btn" onClick={() => handleTest(server.id)} title="Test Connection">
                   <VscDebugStart />
                 </button>
-                <button className="sm-icon-btn" onClick={() => handleEdit(server)} title="Edit">
-                  <VscEdit />
-                </button>
-                <button className="sm-icon-btn danger" onClick={() => handleDelete(server.id)} title="Delete">
-                  <VscTrash />
-                </button>
+                {!server.from_config && (
+                  <>
+                    <button className="sm-icon-btn" onClick={() => handleEdit(server)} title="Edit">
+                      <VscEdit />
+                    </button>
+                    <button className="sm-icon-btn danger" onClick={() => handleDelete(server.id)} title="Delete">
+                      <VscTrash />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))
