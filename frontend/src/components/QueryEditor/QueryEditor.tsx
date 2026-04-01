@@ -75,14 +75,7 @@ function QueryEditor({ ctx }: Props) {
     if (!selectedServer || !selectedDb) return;
     setRunning(true);
     try {
-      const editor = editorRef.current;
-      const selection = editor?.getSelection();
-      let queryToRun = sql;
-
-      // Use selected text if there's a selection
-      if (selection && !selection.isEmpty()) {
-        queryToRun = editor.getModel().getValueInRange(selection);
-      }
+      const queryToRun = getActiveSQL();
 
       const res = await executeQuery(selectedServer, selectedDb, queryToRun);
       setResult(res);
@@ -99,12 +92,22 @@ function QueryEditor({ ctx }: Props) {
     }
   };
 
+  const getActiveSQL = (): string => {
+    const editor = editorRef.current;
+    const selection = editor?.getSelection();
+    if (selection && !selection.isEmpty()) {
+      return editor.getModel().getValueInRange(selection);
+    }
+    return sql;
+  };
+
   const handleExport = async (format: 'csv' | 'xlsx') => {
     const db = ctx.activeQuery?.database || selectedDb;
     const server = ctx.activeQuery?.serverId || selectedServer;
-    if (!server || !db || !sql) return;
+    const queryToExport = getActiveSQL();
+    if (!server || !db || !queryToExport) return;
     try {
-      await exportData(server, db, sql, format);
+      await exportData(server, db, queryToExport, format);
     } catch (err: any) {
       alert('Export failed: ' + err.message);
     }
