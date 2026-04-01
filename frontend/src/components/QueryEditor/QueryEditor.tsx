@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 import Split from 'react-split';
 import { AppContext } from '../../App';
@@ -40,6 +40,36 @@ function QueryEditor({ ctx }: Props) {
       }
     }
   });
+
+  // Handle pending queries from context menu (e.g., Select Top 1000)
+  useEffect(() => {
+    if (ctx.pendingQuery) {
+      const { serverId, database, sql: pendingSql } = ctx.pendingQuery;
+      ctx.setPendingQuery(null);
+      setSql(pendingSql);
+      setSelectedDb(database);
+      loadDatabases(serverId);
+
+      // Auto-execute after a short delay to let state settle
+      setTimeout(async () => {
+        setRunning(true);
+        try {
+          const res = await executeQuery(serverId, database, pendingSql);
+          setResult(res);
+        } catch (err: any) {
+          setResult({
+            columns: [],
+            rows: [],
+            row_count: 0,
+            execution_time_ms: 0,
+            error: err.response?.data?.detail || err.message,
+          });
+        } finally {
+          setRunning(false);
+        }
+      }, 100);
+    }
+  }, [ctx.pendingQuery]);
 
   const handleExecute = async () => {
     if (!selectedServer || !selectedDb) return;

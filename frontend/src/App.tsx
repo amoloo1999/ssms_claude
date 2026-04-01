@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { getMe } from './services/api';
-import { User, Server, TableItem, ColumnInfo } from './types';
+import { User, Server } from './types';
 import Layout from './components/Layout/Layout';
 import LoginPage from './pages/LoginPage';
 import './App.css';
@@ -11,6 +11,12 @@ export interface ActiveTable {
   database: string;
   schema: string;
   table: string;
+}
+
+export interface PendingQuery {
+  serverId: number;
+  database: string;
+  sql: string;
 }
 
 export interface AppContext {
@@ -23,6 +29,10 @@ export interface AppContext {
   setActiveTable: (t: ActiveTable | null) => void;
   activeTab: 'query' | 'table' | 'schema';
   setActiveTab: (t: 'query' | 'table' | 'schema') => void;
+  pendingQuery: PendingQuery | null;
+  setPendingQuery: (q: PendingQuery | null) => void;
+  refreshExplorerNode: string | null;
+  setRefreshExplorerNode: (id: string | null) => void;
 }
 
 function App() {
@@ -32,6 +42,8 @@ function App() {
   const [activeQuery, setActiveQuery] = useState<{ serverId: number; database: string } | null>(null);
   const [activeTable, setActiveTable] = useState<ActiveTable | null>(null);
   const [activeTab, setActiveTab] = useState<'query' | 'table' | 'schema'>('query');
+  const [pendingQuery, setPendingQuery] = useState<PendingQuery | null>(null);
+  const [refreshExplorerNode, setRefreshExplorerNode] = useState<string | null>(null);
 
   useEffect(() => {
     getMe()
@@ -54,6 +66,10 @@ function App() {
     setActiveTable,
     activeTab,
     setActiveTab,
+    pendingQuery,
+    setPendingQuery,
+    refreshExplorerNode,
+    setRefreshExplorerNode,
   };
 
   return (
