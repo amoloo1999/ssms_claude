@@ -135,7 +135,7 @@ function ObjectExplorer({ ctx }: Props) {
       const result = await getTableColumns(serverId, database, schema, name);
       children = (result.columns || []).map((col: any) => ({
         id: `col-${serverId}-${database}-${schema}.${name}-${col.name}`,
-        label: `${col.name} (${col.data_type}${col.max_length ? `(${col.max_length})` : ''}${col.is_nullable ? ', null' : ', not null'}${col.is_primary_key ? ', PK' : ''})`,
+        label: `${col.name} (${col.data_type}${col.max_length ? `(${col.max_length})` : ''}${col.is_primary_key ? ', PK' : ''})`,
         type: 'column' as const,
         data: col,
       }));
