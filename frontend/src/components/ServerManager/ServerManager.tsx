@@ -33,6 +33,7 @@ function ServerManager({ ctx }: Props) {
   const [form, setForm] = useState<FormData>(emptyForm);
   const [testResult, setTestResult] = useState<Record<number, { success: boolean; message: string }>>({});
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const refresh = async () => {
     const servers = await getServers();
@@ -42,6 +43,7 @@ function ServerManager({ ctx }: Props) {
   const handleAdd = () => {
     setForm(emptyForm);
     setEditing(null);
+    setShowPassword(false);
     setShowForm(true);
   };
 
@@ -139,12 +141,21 @@ function ServerManager({ ctx }: Props) {
             </label>
             <label>
               Password
-              <input
-                type="password"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                placeholder={editing ? '(leave blank to keep current)' : 'Password'}
-              />
+              <div className="password-field">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  placeholder={editing ? '(leave blank to keep current)' : 'Password'}
+                />
+                <button
+                  type="button"
+                  className="toggle-password"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
             </label>
             <label>
               Description
