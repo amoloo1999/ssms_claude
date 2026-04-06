@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # Config file path for seeding servers
     config_file: str = "config.yaml"
 
+    # Anthropic / Claude AI assistant
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-6"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

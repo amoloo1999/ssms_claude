@@ -37,11 +37,24 @@ export interface IndexInfo {
   columns: string;
 }
 
+export interface ResultSet {
+  columns: string[];
+  rows: any[][];
+  row_count: number;
+}
+
 export interface QueryResult {
   columns: string[];
   rows: any[][];
   row_count: number;
+  result_sets?: ResultSet[];
   execution_time_ms: number;
+  error: string | null;
+}
+
+export interface AIResponse {
+  sql: string | null;
+  explanation: string;
   error: string | null;
 }
 
