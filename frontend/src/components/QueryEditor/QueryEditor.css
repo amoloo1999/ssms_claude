@@ -1,7 +1,43 @@
+.query-editor-wrap {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
 .query-editor {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-width: 0;
   height: 100%;
+}
+
+.result-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 4px 6px 0 6px;
+  overflow-x: auto;
+}
+
+.result-tab {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  color: var(--text-secondary);
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 3px 3px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.result-tab.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .query-toolbar {

@@ -14,6 +14,7 @@ from app.routers.explorer import router as explorer_router
 from app.routers.query import router as query_router
 from app.routers.tables import router as tables_router
 from app.routers.export import router as export_router
+from app.routers.ai import router as ai_router
 
 settings = get_settings()
 
@@ -92,6 +93,7 @@ app.include_router(explorer_router)
 app.include_router(query_router)
 app.include_router(tables_router)
 app.include_router(export_router)
+app.include_router(ai_router)
 
 
 @app.get("/health")

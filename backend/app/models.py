@@ -80,11 +80,38 @@ class QueryRequest(BaseModel):
     sql: str
 
 
+class ResultSet(BaseModel):
+    columns: list[str]
+    rows: list[list]
+    row_count: int
+
+
 class QueryResult(BaseModel):
     columns: list[str]
     rows: list[list]
     row_count: int
+    result_sets: list[ResultSet] = []
     execution_time_ms: float
+    error: Optional[str] = None
+
+
+class AIGenerateRequest(BaseModel):
+    server_id: int
+    database: str
+    prompt: str
+    current_sql: Optional[str] = None
+
+
+class AIFixRequest(BaseModel):
+    server_id: int
+    database: str
+    sql: str
+    error: str
+
+
+class AIResponse(BaseModel):
+    sql: Optional[str] = None
+    explanation: str
     error: Optional[str] = None
 
 

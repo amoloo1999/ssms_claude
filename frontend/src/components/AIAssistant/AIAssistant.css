@@ -1,0 +1,154 @@
+.ai-assistant {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 360px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border-left: 1px solid #333;
+  font-size: 13px;
+}
+
+.ai-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #333;
+  background: #252526;
+}
+
+.ai-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.ai-close {
+  background: none;
+  border: none;
+  color: #d4d4d4;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.ai-warn {
+  padding: 8px 12px;
+  background: #5a3a00;
+  color: #ffd591;
+  font-size: 12px;
+}
+
+.ai-history {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+
+.ai-empty {
+  color: #888;
+  font-style: italic;
+}
+
+.ai-turn {
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed #333;
+}
+
+.ai-user {
+  background: #094771;
+  color: #fff;
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+}
+
+.ai-loading {
+  color: #888;
+  font-style: italic;
+}
+
+.ai-error {
+  background: #5a1d1d;
+  color: #ffb3b3;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.ai-reply {
+  background: #252526;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.ai-explain {
+  margin: 0 0 6px 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.ai-insert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #0e639c;
+  color: #fff;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ai-insert:hover {
+  background: #1177bb;
+}
+
+.ai-input {
+  border-top: 1px solid #333;
+  padding: 8px 12px;
+  background: #252526;
+}
+
+.ai-input textarea {
+  width: 100%;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #444;
+  border-radius: 3px;
+  padding: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.ai-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ai-actions button {
+  flex: 1;
+  background: #0e639c;
+  color: #fff;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.ai-actions button:disabled {
+  background: #444;
+  cursor: not-allowed;
+}
+
+.ai-actions button:hover:not(:disabled) {
+  background: #1177bb;
+}

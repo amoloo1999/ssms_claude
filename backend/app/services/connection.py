@@ -95,35 +95,60 @@ def execute_query(connection_string: str, sql: str, params: Optional[tuple] = No
             else:
                 cursor.execute(sql)
 
-            if cursor.description:
-                columns = [col[0] for col in cursor.description]
-                rows = []
-                for row in cursor.fetchall():
-                    rows.append([_serialize_value(v) for v in row])
-                elapsed = (time.time() - start) * 1000
-                return {
-                    "columns": columns,
-                    "rows": rows,
-                    "row_count": len(rows),
-                    "execution_time_ms": round(elapsed, 2),
-                    "error": None,
-                }
-            else:
+            result_sets = []
+            total_affected = 0
+            while True:
+                if cursor.description:
+                    columns = [col[0] for col in cursor.description]
+                    rows = [
+                        [_serialize_value(v) for v in row]
+                        for row in cursor.fetchall()
+                    ]
+                    result_sets.append({
+                        "columns": columns,
+                        "rows": rows,
+                        "row_count": len(rows),
+                    })
+                else:
+                    if cursor.rowcount and cursor.rowcount > 0:
+                        total_affected += cursor.rowcount
+                if not cursor.nextset():
+                    break
+
+            # Commit any non-result statements (INSERT/UPDATE/DELETE)
+            try:
                 conn.commit()
-                elapsed = (time.time() - start) * 1000
+            except Exception:
+                pass
+
+            elapsed = (time.time() - start) * 1000
+
+            # Backwards-compat: first set's columns/rows mirror result_sets[0]
+            if result_sets:
+                first = result_sets[0]
                 return {
-                    "columns": [],
-                    "rows": [],
-                    "row_count": cursor.rowcount,
+                    "columns": first["columns"],
+                    "rows": first["rows"],
+                    "row_count": first["row_count"],
+                    "result_sets": result_sets,
                     "execution_time_ms": round(elapsed, 2),
                     "error": None,
                 }
+            return {
+                "columns": [],
+                "rows": [],
+                "row_count": total_affected,
+                "result_sets": [],
+                "execution_time_ms": round(elapsed, 2),
+                "error": None,
+            }
     except Exception as e:
         elapsed = (time.time() - start) * 1000
         return {
             "columns": [],
             "rows": [],
             "row_count": 0,
+            "result_sets": [],
             "execution_time_ms": round(elapsed, 2),
             "error": str(e),
         }

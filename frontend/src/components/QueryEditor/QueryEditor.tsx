@@ -5,7 +5,8 @@ import { AppContext } from '../../App';
 import { executeQuery, exportData } from '../../services/api';
 import ResultsGrid from '../ResultsGrid/ResultsGrid';
 import { QueryResult } from '../../types';
-import { VscPlay, VscExport } from 'react-icons/vsc';
+import { VscPlay, VscExport, VscSparkle } from 'react-icons/vsc';
+import AIAssistant from '../AIAssistant/AIAssistant';
 import './QueryEditor.css';
 
 interface Props {
@@ -18,6 +19,8 @@ function QueryEditor({ ctx }: Props) {
   const [running, setRunning] = useState(false);
   const [selectedDb, setSelectedDb] = useState('');
   const [databases, setDatabases] = useState<string[]>([]);
+  const [activeResultTab, setActiveResultTab] = useState(0);
+  const [aiOpen, setAiOpen] = useState(false);
   const editorRef = useRef<any>(null);
 
   const selectedServer = ctx.activeQuery?.serverId;
@@ -56,6 +59,7 @@ function QueryEditor({ ctx }: Props) {
         try {
           const res = await executeQuery(serverId, database, pendingSql);
           setResult(res);
+          setActiveResultTab(0);
         } catch (err: any) {
           setResult({
             columns: [],
@@ -79,6 +83,7 @@ function QueryEditor({ ctx }: Props) {
 
       const res = await executeQuery(selectedServer, selectedDb, queryToRun);
       setResult(res);
+      setActiveResultTab(0);
     } catch (err: any) {
       setResult({
         columns: [],
@@ -119,7 +124,15 @@ function QueryEditor({ ctx }: Props) {
     editor.addCommand(2048 | 3, () => handleExecute()); // Ctrl+Enter
   };
 
+  const resultSets = result?.result_sets && result.result_sets.length > 0
+    ? result.result_sets
+    : result && !result.error
+      ? [{ columns: result.columns, rows: result.rows, row_count: result.row_count }]
+      : [];
+  const activeSet = resultSets[activeResultTab] || resultSets[0];
+
   return (
+    <div className="query-editor-wrap">
     <div className="query-editor">
       {/* Toolbar */}
       <div className="query-toolbar">
@@ -177,6 +190,13 @@ function QueryEditor({ ctx }: Props) {
           <button className="export-btn" onClick={() => handleExport('xlsx')} disabled={!result?.rows.length}>
             <VscExport /> Excel
           </button>
+          <button
+            className="export-btn"
+            onClick={() => setAiOpen((v) => !v)}
+            title="Toggle AI assistant"
+          >
+            <VscSparkle /> AI
+          </button>
         </div>
       </div>
 
@@ -214,13 +234,33 @@ function QueryEditor({ ctx }: Props) {
             result.error ? (
               <div className="result-error">
                 <strong>Error:</strong> {result.error}
+                <div style={{ marginTop: 8 }}>
+                  <button className="export-btn" onClick={() => setAiOpen(true)}>
+                    <VscSparkle /> Ask AI to fix
+                  </button>
+                </div>
               </div>
             ) : (
               <>
+                {resultSets.length > 1 && (
+                  <div className="result-tabs">
+                    {resultSets.map((rs, i) => (
+                      <button
+                        key={i}
+                        className={`result-tab ${i === activeResultTab ? 'active' : ''}`}
+                        onClick={() => setActiveResultTab(i)}
+                      >
+                        Result {i + 1} ({rs.row_count})
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="result-stats">
-                  {result.row_count} row(s) returned in {result.execution_time_ms}ms
+                  {activeSet?.row_count ?? 0} row(s)
+                  {resultSets.length > 1 ? ` in result ${activeResultTab + 1} of ${resultSets.length}` : ''}
+                  {' '}— total {result.execution_time_ms}ms
                 </div>
-                <ResultsGrid columns={result.columns} rows={result.rows} />
+                {activeSet && <ResultsGrid columns={activeSet.columns} rows={activeSet.rows} />}
               </>
             )
           ) : (
@@ -230,6 +270,20 @@ function QueryEditor({ ctx }: Props) {
           )}
         </div>
       </Split>
+    </div>
+    {aiOpen && (
+      <AIAssistant
+        serverId={selectedServer}
+        database={selectedDb}
+        currentSql={getActiveSQL()}
+        lastError={result?.error || null}
+        onClose={() => setAiOpen(false)}
+        onInsertSql={(newSql) => {
+          setSql(newSql);
+          editorRef.current?.setValue?.(newSql);
+        }}
+      />
+    )}
     </div>
   );
 }

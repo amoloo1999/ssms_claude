@@ -57,6 +57,16 @@ export const getTableIndexes = (serverId: number, database: string, schema: stri
 export const executeQuery = (serverId: number, database: string, sql: string) =>
   api.post('/api/query/execute', { server_id: serverId, database, sql }).then((r) => r.data);
 
+// ── AI ──
+
+export const aiGenerate = (serverId: number, database: string, prompt: string, currentSql?: string) =>
+  api
+    .post('/api/ai/generate', { server_id: serverId, database, prompt, current_sql: currentSql })
+    .then((r) => r.data);
+
+export const aiFix = (serverId: number, database: string, sql: string, error: string) =>
+  api.post('/api/ai/fix', { server_id: serverId, database, sql, error }).then((r) => r.data);
+
 // ── Tables ──
 
 export const getTableData = (
