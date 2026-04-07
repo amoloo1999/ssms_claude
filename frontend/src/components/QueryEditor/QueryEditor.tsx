@@ -35,14 +35,40 @@ function QueryEditor({ ctx }: Props) {
     }
   };
 
-  useState(() => {
-    if (selectedServer) {
-      loadDatabases(selectedServer);
-      if (ctx.activeQuery?.database) {
-        setSelectedDb(ctx.activeQuery.database);
-      }
+  // Auto-default the active server to the one whose name contains "main"
+  // (case-insensitive), falling back to the first server in the list. Runs
+  // once the server list is loaded and only when nothing is already selected.
+  useEffect(() => {
+    if (selectedServer || !ctx.servers || ctx.servers.length === 0) return;
+    const main =
+      ctx.servers.find((s) => /main/i.test(s.name)) || ctx.servers[0];
+    if (main) {
+      ctx.setActiveQuery({ serverId: main.id, database: '' });
+      loadDatabases(main.id);
     }
-  });
+  }, [ctx.servers, selectedServer]);
+
+  // Whenever the active server changes, refresh the database list and pick a
+  // sensible default (prefer `master` if present).
+  useEffect(() => {
+    if (!selectedServer) return;
+    (async () => {
+      const { getDatabases } = await import('../../services/api');
+      const res = await getDatabases(selectedServer);
+      const dbs: string[] = res.databases || [];
+      setDatabases(dbs);
+      if (!selectedDb && dbs.length > 0) {
+        const def =
+          (ctx.activeQuery?.database && dbs.includes(ctx.activeQuery.database)
+            ? ctx.activeQuery.database
+            : null) ||
+          dbs.find((d) => d.toLowerCase() === 'master') ||
+          dbs[0];
+        setSelectedDb(def);
+        ctx.setActiveQuery({ serverId: selectedServer, database: def });
+      }
+    })();
+  }, [selectedServer]);
 
   // Handle pending queries from context menu (e.g., Select Top 1000)
   useEffect(() => {

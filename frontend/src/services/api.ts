@@ -67,6 +67,9 @@ export const aiGenerate = (serverId: number, database: string, prompt: string, c
 export const aiFix = (serverId: number, database: string, sql: string, error: string) =>
   api.post('/api/ai/fix', { server_id: serverId, database, sql, error }).then((r) => r.data);
 
+export const aiFindData = (serverId: number, prompt: string) =>
+  api.post('/api/ai/find-data', { server_id: serverId, prompt }).then((r) => r.data);
+
 // ── Tables ──
 
 export const getTableData = (

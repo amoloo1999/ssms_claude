@@ -109,6 +109,11 @@ class AIFixRequest(BaseModel):
     error: str
 
 
+class AIFindDataRequest(BaseModel):
+    server_id: int
+    prompt: str
+
+
 class AIResponse(BaseModel):
     sql: Optional[str] = None
     explanation: str
