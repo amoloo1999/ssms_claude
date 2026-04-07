@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { aiGenerate, aiFix } from '../../services/api';
+import { aiGenerate, aiFix, aiFindData } from '../../services/api';
 import { AIResponse } from '../../types';
 import { VscSparkle, VscClose, VscWand } from 'react-icons/vsc';
 import './AIAssistant.css';
@@ -24,15 +24,18 @@ function AIAssistant({ serverId, database, currentSql, lastError, onClose, onIns
   const [history, setHistory] = useState<Turn[]>([]);
 
   const ready = !!serverId && !!database;
+  const findReady = !!serverId;
 
-  const ask = async (kind: 'generate' | 'fix', userPrompt: string) => {
-    if (!ready) return;
+  const ask = async (kind: 'generate' | 'fix' | 'find', userPrompt: string) => {
+    if (kind === 'find' ? !findReady : !ready) return;
     const turn: Turn = { prompt: userPrompt, response: null, loading: true };
     setHistory((h) => [...h, turn]);
     try {
       const res =
         kind === 'generate'
           ? await aiGenerate(serverId!, database!, userPrompt, currentSql)
+          : kind === 'find'
+          ? await aiFindData(serverId!, userPrompt)
           : await aiFix(serverId!, database!, currentSql, lastError || '');
       setHistory((h) => h.map((t) => (t === turn ? { ...t, response: res, loading: false } : t)));
     } catch (err: any) {
@@ -60,6 +63,12 @@ function AIAssistant({ serverId, database, currentSql, lastError, onClose, onIns
     setPrompt('');
   };
 
+  const handleFind = () => {
+    if (!prompt.trim()) return;
+    ask('find', prompt.trim());
+    setPrompt('');
+  };
+
   const handleFix = () => {
     if (!currentSql.trim() || !lastError) return;
     ask('fix', `Fix this query — error: ${lastError}`);
@@ -76,7 +85,12 @@ function AIAssistant({ serverId, database, currentSql, lastError, onClose, onIns
         </button>
       </div>
 
-      {!ready && <div className="ai-warn">Select a server and database first.</div>}
+      {!findReady && <div className="ai-warn">Select a server first.</div>}
+      {findReady && !ready && (
+        <div className="ai-warn">
+          Pick a database to generate or fix queries. "Find data" works without one.
+        </div>
+      )}
 
       <div className="ai-history">
         {history.length === 0 && (
@@ -108,7 +122,7 @@ function AIAssistant({ serverId, database, currentSql, lastError, onClose, onIns
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="e.g. Top 10 sites by revenue last month"
+          placeholder="Generate: 'Top 10 sites by revenue last month' · Find: 'Where does occupancy data live?'"
           rows={3}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -120,6 +134,9 @@ function AIAssistant({ serverId, database, currentSql, lastError, onClose, onIns
         <div className="ai-actions">
           <button onClick={handleGenerate} disabled={!ready || !prompt.trim()}>
             Generate SQL
+          </button>
+          <button onClick={handleFind} disabled={!findReady || !prompt.trim()}>
+            Find data
           </button>
           <button onClick={handleFix} disabled={!ready || !currentSql.trim() || !lastError}>
             Fix my query

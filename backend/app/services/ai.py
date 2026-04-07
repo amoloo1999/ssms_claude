@@ -1,7 +1,16 @@
 import re
 from anthropic import Anthropic
 from app.config import get_settings
-from app.services.connection import execute_query
+from app.services.connection import execute_query, build_connection_string
+
+# Stop-words we strip from "find data" prompts before keyword matching.
+_FIND_STOPWORDS = {
+    "where", "what", "which", "find", "the", "for", "and", "data", "table",
+    "tables", "column", "columns", "live", "lives", "stored", "store", "store's",
+    "can", "show", "tell", "info", "information", "about", "have", "has", "any",
+    "with", "from", "this", "that", "give", "list", "all", "some", "are", "you",
+    "please", "would", "should", "could", "look", "looking", "need", "want",
+}
 
 _settings = get_settings()
 _client: Anthropic | None = None
@@ -107,6 +116,119 @@ def generate_sql(connection_string: str, database: str, prompt: str, current_sql
         user_msg += f"Current SQL in editor:\n```sql\n{current_sql}\n```\n\n"
     user_msg += f"Request: {prompt}"
 
+    text = _call_claude(user_msg)
+    return {"sql": _extract_sql(text), "explanation": text, "error": None}
+
+
+def _extract_keywords(prompt: str) -> list[str]:
+    words = re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", prompt or "")
+    seen: list[str] = []
+    for w in words:
+        lw = w.lower()
+        if lw in _FIND_STOPWORDS:
+            continue
+        if lw not in seen:
+            seen.append(lw)
+    return seen[:10]
+
+
+def find_data(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    prompt: str,
+    max_databases: int = 25,
+    max_matches: int = 200,
+) -> dict:
+    """Search every user database on a server for tables/columns relevant to the prompt.
+
+    Returns an AIResponse-shaped dict with a plain-English answer plus a starter
+    SELECT query the user can refine.
+    """
+    keywords = _extract_keywords(prompt)
+    if not keywords:
+        return {
+            "sql": None,
+            "explanation": "",
+            "error": "Could not pull any keywords out of your question. Try naming the data you're looking for (e.g. 'occupancy', 'employees').",
+        }
+
+    master_conn = build_connection_string(host, port, username, password, "master")
+    db_res = execute_query(
+        master_conn,
+        """
+        SELECT name FROM sys.databases
+        WHERE database_id > 4 AND state = 0
+        ORDER BY name
+        """,
+    )
+    if db_res.get("error"):
+        return {"sql": None, "explanation": "", "error": f"Could not list databases: {db_res['error']}"}
+
+    databases = [r[0] for r in db_res["rows"]][:max_databases]
+    if not databases:
+        return {"sql": None, "explanation": "", "error": "No user databases found on this server."}
+
+    # Build a parameterized LIKE clause for table_name OR column_name matches.
+    like_clauses = " OR ".join(
+        ["LOWER(TABLE_NAME) LIKE ?" for _ in keywords]
+        + ["LOWER(COLUMN_NAME) LIKE ?" for _ in keywords]
+    )
+    params = tuple([f"%{k}%" for k in keywords] * 2)
+
+    matches: list[tuple[str, str, str, str, str]] = []  # (db, schema, table, column, type)
+    errors: list[str] = []
+    for db_name in databases:
+        if len(matches) >= max_matches:
+            break
+        conn_str = build_connection_string(host, port, username, password, db_name)
+        sql = f"""
+            SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE {like_clauses}
+            ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
+        """
+        res = execute_query(conn_str, sql, params)
+        if res.get("error"):
+            errors.append(f"{db_name}: {res['error']}")
+            continue
+        for row in res["rows"]:
+            matches.append((db_name, row[0], row[1], row[2], row[3]))
+            if len(matches) >= max_matches:
+                break
+
+    if not matches:
+        detail = f" ({'; '.join(errors)})" if errors else ""
+        return {
+            "sql": None,
+            "explanation": "",
+            "error": f"No tables or columns matched keywords {keywords} across {len(databases)} databases.{detail}",
+        }
+
+    # Group matches by (db, schema, table) for a compact context.
+    grouped: dict[tuple[str, str, str], list[str]] = {}
+    for db_name, schema, table, col, dtype in matches:
+        grouped.setdefault((db_name, schema, table), []).append(f"{col} {dtype}")
+
+    catalog_lines = []
+    for (db_name, schema, table), cols in grouped.items():
+        catalog_lines.append(f"[{db_name}].{schema}.{table} -> {', '.join(cols)}")
+    catalog = "\n".join(catalog_lines)
+
+    user_msg = (
+        f"User question: {prompt}\n\n"
+        f"I searched every user database on this SQL Server for tables and columns "
+        f"matching the keywords {keywords}. Below is every match — each line is "
+        f"`[database].schema.table -> matching columns`.\n\n"
+        f"{catalog}\n\n"
+        "Based on these matches, do two things:\n"
+        "1. In one short paragraph, tell the user where this data most likely lives "
+        "(name the database, schema, and table). If multiple candidates look plausible, "
+        "list the top 2-3 and say how to tell them apart.\n"
+        "2. Provide a starter `SELECT TOP 100` query against the best candidate, using "
+        "fully-qualified `[database].[schema].[table]` naming so the user can run it from any database context.\n"
+    )
     text = _call_claude(user_msg)
     return {"sql": _extract_sql(text), "explanation": text, "error": None}
 
