@@ -17,54 +17,45 @@ function QueryEditor({ ctx }: Props) {
   const [sql, setSql] = useState('SELECT TOP 100 * FROM ');
   const [result, setResult] = useState<QueryResult | null>(null);
   const [running, setRunning] = useState(false);
-  const [selectedDb, setSelectedDb] = useState('');
   const [databases, setDatabases] = useState<string[]>([]);
   const [activeResultTab, setActiveResultTab] = useState(0);
   const [aiOpen, setAiOpen] = useState(false);
   const editorRef = useRef<any>(null);
 
+  // Single source of truth for the active server/database is ctx.activeQuery.
+  // Deriving the dropdown values from context (instead of mirroring them into
+  // local state) avoids the race conditions that previously caused manual
+  // database selections to get clobbered by the auto-default effect.
   const selectedServer = ctx.activeQuery?.serverId;
+  const selectedDb = ctx.activeQuery?.database || '';
 
-  // Load databases when server changes
-  const loadDatabases = async (serverId: number) => {
+  const loadDatabases = async (serverId: number): Promise<string[]> => {
     const { getDatabases } = await import('../../services/api');
     const res = await getDatabases(serverId);
-    setDatabases(res.databases || []);
-    if (res.databases?.length > 0 && !selectedDb) {
-      setSelectedDb(res.databases[0]);
-    }
+    const dbs: string[] = res.databases || [];
+    setDatabases(dbs);
+    return dbs;
   };
 
   // Auto-default the active server to the one whose name contains "main"
-  // (case-insensitive), falling back to the first server in the list. Runs
-  // once the server list is loaded and only when nothing is already selected.
+  // (case-insensitive), falling back to the first server. Runs once the
+  // server list is loaded and only when nothing is already selected.
   useEffect(() => {
     if (selectedServer || !ctx.servers || ctx.servers.length === 0) return;
-    const main =
-      ctx.servers.find((s) => /main/i.test(s.name)) || ctx.servers[0];
+    const main = ctx.servers.find((s) => /main/i.test(s.name)) || ctx.servers[0];
     if (main) {
       ctx.setActiveQuery({ serverId: main.id, database: '' });
-      loadDatabases(main.id);
     }
   }, [ctx.servers, selectedServer]);
 
-  // Whenever the active server changes, refresh the database list and pick a
-  // sensible default (prefer `master` if present).
+  // Whenever the active server changes, refresh the database list and (only
+  // if no database is already selected) pick a sensible default.
   useEffect(() => {
     if (!selectedServer) return;
     (async () => {
-      const { getDatabases } = await import('../../services/api');
-      const res = await getDatabases(selectedServer);
-      const dbs: string[] = res.databases || [];
-      setDatabases(dbs);
+      const dbs = await loadDatabases(selectedServer);
       if (!selectedDb && dbs.length > 0) {
-        const def =
-          (ctx.activeQuery?.database && dbs.includes(ctx.activeQuery.database)
-            ? ctx.activeQuery.database
-            : null) ||
-          dbs.find((d) => d.toLowerCase() === 'master') ||
-          dbs[0];
-        setSelectedDb(def);
+        const def = dbs.find((d) => d.toLowerCase() === 'master') || dbs[0];
         ctx.setActiveQuery({ serverId: selectedServer, database: def });
       }
     })();
@@ -76,7 +67,7 @@ function QueryEditor({ ctx }: Props) {
       const { serverId, database, sql: pendingSql } = ctx.pendingQuery;
       ctx.setPendingQuery(null);
       setSql(pendingSql);
-      setSelectedDb(database);
+      ctx.setActiveQuery({ serverId, database });
       loadDatabases(serverId);
 
       // Auto-execute after a short delay to let state settle
@@ -169,8 +160,9 @@ function QueryEditor({ ctx }: Props) {
             onChange={(e) => {
               const id = Number(e.target.value);
               if (id) {
-                ctx.setActiveQuery({ serverId: id, database: selectedDb });
-                loadDatabases(id);
+                // Clearing the database here lets the auto-default effect
+                // pick a sensible one for the new server.
+                ctx.setActiveQuery({ serverId: id, database: '' });
               }
             }}
           >
@@ -186,7 +178,6 @@ function QueryEditor({ ctx }: Props) {
             className="db-select"
             value={selectedDb}
             onChange={(e) => {
-              setSelectedDb(e.target.value);
               if (selectedServer) {
                 ctx.setActiveQuery({ serverId: selectedServer, database: e.target.value });
               }
