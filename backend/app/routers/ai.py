@@ -22,9 +22,21 @@ async def generate(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    conn_str = await get_connection_string(db, body.server_id, body.database)
+    server = (
+        await db.execute(select(ServerConnection).where(ServerConnection.id == body.server_id))
+    ).scalar_one_or_none()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
     try:
-        result = ai_service.generate_sql(conn_str, body.database, body.prompt, body.current_sql)
+        result = ai_service.generate_sql(
+            server.host,
+            server.port,
+            server.username,
+            server.password,
+            body.database,
+            body.prompt,
+            body.current_sql,
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:

@@ -106,11 +106,39 @@ def _call_claude(user_message: str) -> str:
     return "\n".join(parts).strip()
 
 
-def generate_sql(connection_string: str, database: str, prompt: str, current_sql: str | None) -> dict:
-    schema_ctx = _fetch_schema_context(connection_string, prompt)
+def generate_sql(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    active_database: str,
+    prompt: str,
+    current_sql: str | None,
+) -> dict:
+    """Generate T-SQL with schema context drawn from EVERY user database on the server.
+
+    The active database becomes the default execution context — tables in it can
+    be referenced unqualified — but Claude is also handed matching tables from
+    every other database on the same server, with instructions to use
+    fully-qualified `[db].[schema].[table]` names when reaching outside the
+    active database.
+    """
+    # Cross-DB schema search, biased by keywords from the user's prompt.
+    cross_db_ctx = _fetch_cross_db_schema(host, port, username, password, prompt)
+
+    # Always include a baseline snapshot of the active database so unqualified
+    # references in the prompt still resolve even when no keywords matched.
+    active_conn = build_connection_string(host, port, username, password, active_database)
+    active_ctx = _fetch_schema_context(active_conn, prompt)
+
     user_msg = (
-        f"Database: {database}\n\n"
-        f"Schema (subset):\n{schema_ctx}\n\n"
+        f"Active database (default execution context): {active_database}\n\n"
+        f"Schema in the active database (subset):\n{active_ctx}\n\n"
+        f"Schema matches from OTHER databases on this same server:\n{cross_db_ctx}\n\n"
+        "When you reference a table that lives in the active database, you may use "
+        "`schema.table`. When you reference a table in any OTHER database listed above, "
+        "you MUST use the fully-qualified `[database].[schema].[table]` form so the query "
+        "runs from the active database context.\n\n"
     )
     if current_sql:
         user_msg += f"Current SQL in editor:\n```sql\n{current_sql}\n```\n\n"
@@ -118,6 +146,76 @@ def generate_sql(connection_string: str, database: str, prompt: str, current_sql
 
     text = _call_claude(user_msg)
     return {"sql": _extract_sql(text), "explanation": text, "error": None}
+
+
+def _fetch_cross_db_schema(
+    host: str,
+    port: int,
+    username: str,
+    password: str,
+    prompt: str,
+    max_databases: int = 25,
+    max_matches: int = 150,
+) -> str:
+    """Search every user database on the server for tables/columns matching prompt keywords.
+
+    Returns a compact textual catalog like `[db].schema.table -> col1 type, col2 type`,
+    or a placeholder string if there's nothing useful to report.
+    """
+    keywords = _extract_keywords(prompt)
+    if not keywords:
+        return "(no keywords extracted from prompt — only the active database schema is shown above)"
+
+    master_conn = build_connection_string(host, port, username, password, "master")
+    db_res = execute_query(
+        master_conn,
+        """
+        SELECT name FROM sys.databases
+        WHERE database_id > 4 AND state = 0
+        ORDER BY name
+        """,
+    )
+    if db_res.get("error"):
+        return f"(cross-db schema unavailable: {db_res['error']})"
+
+    databases = [r[0] for r in db_res["rows"]][:max_databases]
+    if not databases:
+        return "(no other user databases found on this server)"
+
+    like_clauses = " OR ".join(
+        ["LOWER(TABLE_NAME) LIKE ?" for _ in keywords]
+        + ["LOWER(COLUMN_NAME) LIKE ?" for _ in keywords]
+    )
+    params = tuple([f"%{k}%" for k in keywords] * 2)
+
+    grouped: dict[tuple[str, str, str], list[str]] = {}
+    total = 0
+    for db_name in databases:
+        if total >= max_matches:
+            break
+        conn_str = build_connection_string(host, port, username, password, db_name)
+        sql = f"""
+            SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE {like_clauses}
+            ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
+        """
+        res = execute_query(conn_str, sql, params)
+        if res.get("error"):
+            continue
+        for row in res["rows"]:
+            grouped.setdefault((db_name, row[0], row[1]), []).append(f"{row[2]} {row[3]}")
+            total += 1
+            if total >= max_matches:
+                break
+
+    if not grouped:
+        return f"(no tables/columns matched keywords {keywords} in any database on this server)"
+
+    return "\n".join(
+        f"[{db}].{schema}.{table}({', '.join(cols)})"
+        for (db, schema, table), cols in grouped.items()
+    )
 
 
 def _extract_keywords(prompt: str) -> list[str]:
