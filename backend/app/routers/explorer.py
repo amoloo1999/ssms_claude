@@ -52,6 +52,44 @@ async def list_tables(
     }
 
 
+@router.get("/servers/{server_id}/databases/{database}/schema-snapshot")
+async def schema_snapshot(
+    server_id: int,
+    database: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Compact tables + columns dump used by the editor's autocomplete provider."""
+    conn_str = await get_connection_string(db, server_id, database)
+    tbl_res = execute_query(
+        conn_str,
+        """
+        SELECT TABLE_SCHEMA, TABLE_NAME
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_TYPE = 'BASE TABLE'
+        ORDER BY TABLE_SCHEMA, TABLE_NAME
+        """,
+    )
+    if tbl_res["error"]:
+        return {"error": tbl_res["error"], "tables": [], "columns": []}
+    col_res = execute_query(
+        conn_str,
+        """
+        SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
+        FROM INFORMATION_SCHEMA.COLUMNS
+        ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
+        """,
+    )
+    return {
+        "tables": [{"schema": r[0], "name": r[1]} for r in tbl_res["rows"]],
+        "columns": [
+            {"schema": r[0], "table": r[1], "name": r[2], "type": r[3]}
+            for r in (col_res["rows"] if not col_res["error"] else [])
+        ],
+    }
+
+
 @router.get("/servers/{server_id}/databases/{database}/views")
 async def list_views(
     server_id: int,
