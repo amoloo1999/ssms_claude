@@ -1,4 +1,5 @@
 import pyodbc
+import re
 import time
 import threading
 from typing import Optional
@@ -6,6 +7,12 @@ from contextlib import contextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models import ServerConnection
+
+
+# Match `GO` on its own line (optional whitespace, optional repeat count) — the
+# T-SQL batch separator. SSMS treats this as a client-side directive; pyodbc
+# does not understand it, so we split user SQL on these markers ourselves.
+_GO_SPLIT_RE = re.compile(r"(?im)^[ \t]*GO(?:[ \t]+\d+)?[ \t]*$")
 
 
 # Connection pool: keyed by connection string
@@ -85,35 +92,57 @@ def get_sql_connection(connection_string: str):
         raise
 
 
+def _split_batches(sql: str) -> list[str]:
+    """Split SQL on GO batch separators. If params are passed (single-batch
+    parameterized query), the caller skips this and runs as one batch."""
+    parts = [p.strip() for p in _GO_SPLIT_RE.split(sql or "")]
+    return [p for p in parts if p]
+
+
 def execute_query(connection_string: str, sql: str, params: Optional[tuple] = None) -> dict:
     start = time.time()
     try:
+        # Parameterized queries always run as a single batch — splitting on GO
+        # would break parameter binding.
+        if params:
+            batches = [sql]
+        else:
+            batches = _split_batches(sql) or [sql]
+
+        result_sets: list[dict] = []
+        total_affected = 0
+
         with get_sql_connection(connection_string) as conn:
             cursor = conn.cursor()
-            if params:
-                cursor.execute(sql, params)
-            else:
-                cursor.execute(sql)
+            # SET NOCOUNT ON prevents per-statement DONE_IN_PROC rowcount
+            # messages from masquerading as empty result sets when iterating
+            # multi-statement queries with cursor.nextset().
+            cursor.execute("SET NOCOUNT ON")
+            cursor.nextset()  # drain
 
-            result_sets = []
-            total_affected = 0
-            while True:
-                if cursor.description:
-                    columns = [col[0] for col in cursor.description]
-                    rows = [
-                        [_serialize_value(v) for v in row]
-                        for row in cursor.fetchall()
-                    ]
-                    result_sets.append({
-                        "columns": columns,
-                        "rows": rows,
-                        "row_count": len(rows),
-                    })
+            for batch in batches:
+                if params:
+                    cursor.execute(batch, params)
                 else:
-                    if cursor.rowcount and cursor.rowcount > 0:
-                        total_affected += cursor.rowcount
-                if not cursor.nextset():
-                    break
+                    cursor.execute(batch)
+
+                while True:
+                    if cursor.description:
+                        columns = [col[0] for col in cursor.description]
+                        rows = [
+                            [_serialize_value(v) for v in row]
+                            for row in cursor.fetchall()
+                        ]
+                        result_sets.append({
+                            "columns": columns,
+                            "rows": rows,
+                            "row_count": len(rows),
+                        })
+                    else:
+                        if cursor.rowcount and cursor.rowcount > 0:
+                            total_affected += cursor.rowcount
+                    if not cursor.nextset():
+                        break
 
             # Commit any non-result statements (INSERT/UPDATE/DELETE)
             try:
