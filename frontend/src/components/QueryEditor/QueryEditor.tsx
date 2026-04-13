@@ -43,8 +43,17 @@ function QueryEditor({ ctx }: Props) {
   const [aiOpen, setAiOpen] = useState(false);
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
-  const schemaRef = useRef<SchemaSnapshot | null>(null);
   const completionDisposableRef = useRef<{ dispose: () => void } | null>(null);
+
+  // Per-database schema cache (case-insensitive keys via toLowerCase) so the
+  // completion provider can resolve cross-database references like
+  // [OtherDb].dbo.SomeTable without re-fetching on every keystroke. Pending
+  // promises are tracked separately so we don't kick off duplicate fetches.
+  const schemaCacheRef = useRef<Map<string, SchemaSnapshot>>(new Map());
+  const schemaPendingRef = useRef<Map<string, Promise<void>>>(new Map());
+  const databaseListRef = useRef<string[]>([]);
+  const selectedServerRef = useRef<number | undefined>(undefined);
+  const selectedDbRef = useRef<string>('');
 
   // Initialise activeTabId after first render so the seed tab id is stable.
   useEffect(() => {
@@ -84,13 +93,49 @@ function QueryEditor({ ctx }: Props) {
     });
   };
 
+  // Keep refs in sync so the (long-lived) Monaco completion provider closure
+  // can read the current selection without being re-registered.
+  useEffect(() => {
+    selectedServerRef.current = selectedServer;
+  }, [selectedServer]);
+  useEffect(() => {
+    selectedDbRef.current = selectedDb;
+  }, [selectedDb]);
+
   // ── server / database default selection ──────────────────────────────────
   const loadDatabases = async (serverId: number): Promise<string[]> => {
     const { getDatabases } = await import('../../services/api');
     const res = await getDatabases(serverId);
     const dbs: string[] = res.databases || [];
     setDatabases(dbs);
+    databaseListRef.current = dbs;
+    // A new server means the per-database schema cache is stale.
+    schemaCacheRef.current = new Map();
+    schemaPendingRef.current = new Map();
     return dbs;
+  };
+
+  // Fetch a snapshot for a database into the cache. Returns immediately if
+  // already cached or pending. Triggers Monaco's suggest UI to refresh once a
+  // background fetch finishes so the user sees results without retyping.
+  const ensureSchemaSnapshot = (dbName: string) => {
+    const server = selectedServerRef.current;
+    if (!server || !dbName) return;
+    const key = dbName.toLowerCase();
+    if (schemaCacheRef.current.has(key) || schemaPendingRef.current.has(key)) return;
+    const p = (async () => {
+      try {
+        const snap = await getSchemaSnapshot(server, dbName);
+        schemaCacheRef.current.set(key, snap);
+        // Re-trigger the suggest popup so the just-fetched data shows up.
+        editorRef.current?.trigger?.('autocomplete', 'editor.action.triggerSuggest', {});
+      } catch {
+        /* ignore */
+      } finally {
+        schemaPendingRef.current.delete(key);
+      }
+    })();
+    schemaPendingRef.current.set(key, p);
   };
 
   useEffect(() => {
@@ -110,24 +155,10 @@ function QueryEditor({ ctx }: Props) {
     })();
   }, [selectedServer]);
 
-  // ── schema snapshot for autocomplete ─────────────────────────────────────
+  // ── prefetch active database snapshot for autocomplete ──────────────────
   useEffect(() => {
-    if (!selectedServer || !selectedDb) {
-      schemaRef.current = null;
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const snap = await getSchemaSnapshot(selectedServer, selectedDb);
-        if (!cancelled) schemaRef.current = snap;
-      } catch {
-        if (!cancelled) schemaRef.current = null;
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    if (!selectedServer || !selectedDb) return;
+    ensureSchemaSnapshot(selectedDb);
   }, [selectedServer, selectedDb]);
 
   // ── pending query (Select Top 1000 from explorer) ────────────────────────
@@ -226,10 +257,25 @@ function QueryEditor({ ctx }: Props) {
     // Register the completion provider once globally for the SQL language.
     if (!completionDisposableRef.current) {
       completionDisposableRef.current = monaco.languages.registerCompletionItemProvider('sql', {
-        triggerCharacters: ['.', ' ', '['],
+        triggerCharacters: ['.', '['],
         provideCompletionItems: (model: any, position: any) => {
-          const snap = schemaRef.current;
-          if (!snap) return { suggestions: [] };
+          const lineToCursor = model.getValueInRange({
+            startLineNumber: position.lineNumber,
+            startColumn: 1,
+            endLineNumber: position.lineNumber,
+            endColumn: position.column,
+          });
+
+          // Pull the trailing dotted identifier path: up to three identifiers
+          // separated by dots. Brackets [Foo] are stripped after capture.
+          const tailMatch = lineToCursor.match(
+            /((?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)?(?:\.(?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)?){0,2})$/
+          );
+          const tail = tailMatch?.[1] || '';
+          const rawParts = tail.split('.');
+          const parts = rawParts.map((p: string) => p.replace(/^\[|\]$/g, ''));
+          // The last segment is what the user is currently typing — replaced
+          // by the suggestion. Earlier segments are the qualifying context.
           const word = model.getWordUntilPosition(position);
           const range = {
             startLineNumber: position.lineNumber,
@@ -237,39 +283,158 @@ function QueryEditor({ ctx }: Props) {
             startColumn: word.startColumn,
             endColumn: word.endColumn,
           };
+
+          const ci = (s: string) => s.toLowerCase();
+          // Monaco ranks suggestions by sortText (lexicographic). We compute a
+          // rank against the prefix the user is currently typing so that
+          // prefix matches come first, then substring matches, then the rest.
+          // Within each tier we keep alphabetical order.
+          const typed = ci(word.word || '');
+          const rank = (label: string) => {
+            const l = ci(label);
+            if (!typed) return `1:${l}`;
+            if (l.startsWith(typed)) return `0:${l}`;
+            if (l.includes(typed)) return `1:${l}`;
+            return `2:${l}`;
+          };
+          const cache = schemaCacheRef.current;
+          const dbList = databaseListRef.current;
+          const activeDb = selectedDbRef.current;
+          const activeSnap = activeDb ? cache.get(ci(activeDb)) : undefined;
+
           const tableKind = monaco.languages.CompletionItemKind.Struct;
           const colKind = monaco.languages.CompletionItemKind.Field;
+          const dbKind = monaco.languages.CompletionItemKind.Module;
+          const schemaKind = monaco.languages.CompletionItemKind.Folder;
+
           const suggestions: any[] = [];
-          for (const t of snap.tables) {
-            suggestions.push({
-              label: `${t.schema}.${t.name}`,
-              kind: tableKind,
-              insertText: `${t.schema}.${t.name}`,
-              detail: 'table',
-              range,
-            });
-            suggestions.push({
-              label: t.name,
-              kind: tableKind,
-              insertText: t.name,
-              detail: `${t.schema}.${t.name}`,
-              range,
-            });
+          const seen = new Set<string>();
+          const push = (s: any) => {
+            const key = `${s.kind}:${s.label}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            // filterText drives Monaco's matcher; sortText drives ordering.
+            if (s.filterText == null) s.filterText = s.label;
+            if (s.sortText == null) s.sortText = rank(s.label);
+            suggestions.push(s);
+          };
+
+          if (parts.length >= 3) {
+            // db.schema.<typing> — list tables in that db+schema only.
+            const [dbName, schemaName] = parts;
+            const snap = cache.get(ci(dbName));
+            if (!snap) {
+              ensureSchemaSnapshot(dbName);
+              push({
+                label: 'Loading…',
+                kind: tableKind,
+                insertText: '',
+                detail: `fetching tables for ${dbName}`,
+                range,
+                sortText: '9',
+              });
+            } else {
+              for (const t of snap.tables) {
+                if (ci(t.schema) === ci(schemaName)) {
+                  push({
+                    label: t.name,
+                    kind: tableKind,
+                    insertText: t.name,
+                    detail: `${dbName}.${schemaName}.${t.name}`,
+                    range,
+                  });
+                }
+              }
+            }
+          } else if (parts.length === 2) {
+            // Two segments — meaning depends on what the first part is.
+            // If it's a database name, ONLY show schemas from that db.
+            // Otherwise fall through to schema→tables or table→columns.
+            const [first] = parts;
+
+            const matchedDb = dbList.find((d) => ci(d) === ci(first));
+            if (matchedDb) {
+              // first is a database → suggest only schemas inside it.
+              const snap = cache.get(ci(matchedDb));
+              if (!snap) {
+                ensureSchemaSnapshot(matchedDb);
+                push({
+                  label: 'Loading…',
+                  kind: schemaKind,
+                  insertText: '',
+                  detail: `fetching schemas for ${matchedDb}`,
+                  range,
+                  sortText: '9',
+                });
+              } else {
+                const schemas = new Set<string>();
+                for (const t of snap.tables) schemas.add(t.schema);
+                for (const s of schemas) {
+                  push({
+                    label: s,
+                    kind: schemaKind,
+                    insertText: s,
+                    detail: `schema in ${matchedDb}`,
+                    range,
+                  });
+                }
+              }
+            } else {
+              // Not a database — try schema→tables, then table→columns.
+              if (activeSnap) {
+                // (b) first is a schema in the active database → suggest its tables.
+                for (const t of activeSnap.tables) {
+                  if (ci(t.schema) === ci(first)) {
+                    push({
+                      label: t.name,
+                      kind: tableKind,
+                      insertText: t.name,
+                      detail: `${activeDb}.${t.schema}.${t.name}`,
+                      range,
+                    });
+                  }
+                }
+
+                // (c) first is a table in the active database → suggest its columns.
+                for (const c of activeSnap.columns) {
+                  if (ci(c.table) === ci(first)) {
+                    push({
+                      label: c.name,
+                      kind: colKind,
+                      insertText: c.name,
+                      detail: `${c.table}.${c.name} ${c.type}`,
+                      range,
+                    });
+                  }
+                }
+              }
+            }
+          } else {
+            // Single token (or empty) — offer databases on this server,
+            // plus schemas and tables from the active database. Columns are
+            // omitted here to keep the list manageable; they appear once you
+            // qualify with a table name (e.g. tableName.<col>).
+            for (const d of dbList) {
+              push({ label: d, kind: dbKind, insertText: d, detail: 'database', range });
+            }
+            if (activeSnap) {
+              const schemas = new Set<string>();
+              for (const t of activeSnap.tables) schemas.add(t.schema);
+              for (const s of schemas) {
+                push({ label: s, kind: schemaKind, insertText: s, detail: 'schema', range });
+              }
+              for (const t of activeSnap.tables) {
+                push({
+                  label: t.name,
+                  kind: tableKind,
+                  insertText: t.name,
+                  detail: `${t.schema}.${t.name}`,
+                  range,
+                });
+              }
+            }
           }
-          // De-dupe column names while keeping a sample qualified detail.
-          const seenCols = new Map<string, string>();
-          for (const c of snap.columns) {
-            if (!seenCols.has(c.name)) seenCols.set(c.name, `${c.schema}.${c.table}.${c.name}`);
-          }
-          for (const [name, detail] of seenCols) {
-            suggestions.push({
-              label: name,
-              kind: colKind,
-              insertText: name,
-              detail,
-              range,
-            });
-          }
+
           return { suggestions };
         },
       });
