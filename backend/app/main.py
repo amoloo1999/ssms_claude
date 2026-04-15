@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import yaml
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy import select
 
@@ -99,3 +102,11 @@ app.include_router(ai_router)
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+# Serve built frontend (production). Must be mounted AFTER all API routes so
+# API paths aren't shadowed by the SPA catch-all. html=True makes StaticFiles
+# fall back to index.html for unknown paths (SPA client-side routing).
+_frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if _frontend_dist.is_dir():
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
