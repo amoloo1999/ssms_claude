@@ -26,21 +26,28 @@ jobs:
             --parameters '{
               "commands": [
                 "$ErrorActionPreference = \"Stop\"",
+                "$env:Path = [System.Environment]::GetEnvironmentVariable(\"Path\",\"Machine\") + \";\" + [System.Environment]::GetEnvironmentVariable(\"Path\",\"User\")",
+                "$git  = \"C:\\Program Files\\Git\\cmd\\git.exe\"",
+                "$py   = \"C:\\Python311\\python.exe\"",
+                "$npm  = \"C:\\Program Files\\nodejs\\npm.cmd\"",
+                "$nssm = \"C:\\nssm\\nssm.exe\"",
                 "Set-Location C:\\ssms_claude",
-                "git fetch --all",
-                "git reset --hard origin/main",
-                "& \"C:\\Python311\\python.exe\" -m pip install --upgrade -r backend\\requirements.txt",
+                "& $git fetch --all; if ($LASTEXITCODE -ne 0) { throw \"git fetch failed\" }",
+                "& $git reset --hard origin/main; if ($LASTEXITCODE -ne 0) { throw \"git reset failed\" }",
+                "& $py -m pip install --upgrade -r backend\\requirements.txt; if ($LASTEXITCODE -ne 0) { throw \"pip install failed\" }",
                 "Set-Location C:\\ssms_claude\\frontend",
-                "npm install --no-audit --no-fund",
-                "npm run build",
+                "$ErrorActionPreference = \"Continue\"",
+                "& $npm install --no-audit --no-fund 2>&1 | Out-Host; if ($LASTEXITCODE -ne 0) { throw \"npm install failed: $LASTEXITCODE\" }",
+                "& $npm run build 2>&1 | Out-Host; if ($LASTEXITCODE -ne 0) { throw \"npm build failed: $LASTEXITCODE\" }",
+                "$ErrorActionPreference = \"Stop\"",
                 "Set-Location C:\\ssms_claude",
-                "nssm restart ssms-claude",
-                "Start-Sleep -Seconds 3",
-                "$s = (Invoke-WebRequest -Uri http://localhost:8080/health -UseBasicParsing -TimeoutSec 10).StatusCode",
+                "& $nssm restart ssms-claude",
+                "Start-Sleep -Seconds 5",
+                "$s = (Invoke-WebRequest -Uri http://localhost:8080/health -UseBasicParsing -TimeoutSec 15).StatusCode",
                 "if ($s -ne 200) { throw \"Health check failed: $s\" }",
                 "Write-Host \"Deploy OK\""
               ],
-              "executionTimeout": ["600"]
+              "executionTimeout": ["900"]
             }' \
             --query "Command.CommandId" --output text)
           echo "cmd_id=$CMD_ID" >> $GITHUB_OUTPUT
