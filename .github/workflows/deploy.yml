@@ -31,7 +31,7 @@ jobs:
                 "git reset --hard origin/main",
                 "& \"C:\\Python311\\python.exe\" -m pip install --upgrade -r backend\\requirements.txt",
                 "Set-Location C:\\ssms_claude\\frontend",
-                "npm ci",
+                "npm install --no-audit --no-fund",
                 "npm run build",
                 "Set-Location C:\\ssms_claude",
                 "nssm restart ssms-claude",
