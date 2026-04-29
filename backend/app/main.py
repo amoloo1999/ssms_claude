@@ -114,7 +114,7 @@ async def health_check():
 _frontend_dist = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 
-_API_PREFIXES = ("api/", "auth/", "health")
+_API_PREFIXES = ("/api/", "/auth/", "/health")
 
 
 class SPAStaticFiles(StaticFiles):
@@ -123,11 +123,14 @@ class SPAStaticFiles(StaticFiles):
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
             # Don't mask real API 404s with the SPA shell — only fall back
-            # for client-side routes (anything not under an API prefix).
+            # for client-side routes. Check scope["path"] (the URL, always
+            # forward-slashed) rather than `path`, which Starlette builds
+            # via os.path.join and so uses backslashes on Windows.
+            url_path = scope.get("path", "")
             if (
                 exc.status_code == 404
                 and scope["method"] == "GET"
-                and not path.startswith(_API_PREFIXES)
+                and not url_path.startswith(_API_PREFIXES)
             ):
                 return FileResponse(Path(self.directory) / "index.html")
             raise
