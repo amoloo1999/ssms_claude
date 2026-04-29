@@ -65,9 +65,9 @@ async def schema_snapshot(
     tbl_res = execute_query(
         conn_str,
         """
-        SELECT TABLE_SCHEMA, TABLE_NAME
+        SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
         FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_TYPE = 'BASE TABLE'
+        WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW')
         ORDER BY TABLE_SCHEMA, TABLE_NAME
         """,
     )
@@ -82,7 +82,14 @@ async def schema_snapshot(
         """,
     )
     return {
-        "tables": [{"schema": r[0], "name": r[1]} for r in tbl_res["rows"]],
+        "tables": [
+            {
+                "schema": r[0],
+                "name": r[1],
+                "kind": "view" if r[2] == "VIEW" else "table",
+            }
+            for r in tbl_res["rows"]
+        ],
         "columns": [
             {"schema": r[0], "table": r[1], "name": r[2], "type": r[3]}
             for r in (col_res["rows"] if not col_res["error"] else [])

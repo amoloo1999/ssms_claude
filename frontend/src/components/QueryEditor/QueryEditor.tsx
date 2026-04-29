@@ -22,9 +22,78 @@ interface EditorTab {
 }
 
 interface SchemaSnapshot {
-  tables: { schema: string; name: string }[];
+  tables: { schema: string; name: string; kind?: 'table' | 'view' }[];
   columns: { schema: string; table: string; name: string; type: string }[];
 }
+
+const RESERVED = new Set([
+  'select','from','where','join','inner','left','right','outer','full','cross','on','as',
+  'group','order','by','having','union','insert','update','delete','set',
+  'values','top','distinct','case','when','then','else','end','and','or',
+  'not','null','is','in','between','like','exists','with','into',
+]);
+const needsBrackets = (name: string) =>
+  /[^A-Za-z0-9_$#@]/.test(name) || /^[0-9]/.test(name) || RESERVED.has(name.toLowerCase());
+const quoteIdent = (name: string) => (needsBrackets(name) ? `[${name}]` : name);
+
+interface AliasMap {
+  aliases: Map<string, { schema?: string; table: string }>;
+  ctes: Map<string, string>;
+}
+
+// Extract `FROM/JOIN [schema.]table [AS] alias` and `WITH cte AS (...)` from
+// the buffer so column suggestions can resolve unqualified names and aliases.
+const parseFromClauses = (sql: string): AliasMap => {
+  const aliases = new Map<string, { schema?: string; table: string }>();
+  const ctes = new Map<string, string>();
+  if (!sql) return { aliases, ctes };
+  const cleaned = sql
+    .replace(/'(?:''|[^'])*'/g, "''")
+    .replace(/--[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+
+  const ident = String.raw`(?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)`;
+  const unbracket = (s: string) => s.replace(/^\[|\]$/g, '');
+
+  const fromRe = new RegExp(
+    String.raw`\b(?:from|join)\s+(?:(${ident})\s*\.\s*)?(${ident})(?:\s+(?:as\s+)?(${ident}))?`,
+    'gi',
+  );
+  let m: RegExpExecArray | null;
+  while ((m = fromRe.exec(cleaned)) !== null) {
+    const schema = m[1] ? unbracket(m[1]) : undefined;
+    const table = unbracket(m[2]);
+    const alias = m[3] ? unbracket(m[3]) : undefined;
+    if (alias && !RESERVED.has(alias.toLowerCase())) {
+      aliases.set(alias.toLowerCase(), { schema, table });
+    }
+    aliases.set(table.toLowerCase(), { schema, table });
+  }
+
+  const cteRe = new RegExp(String.raw`\b(?:with|,)\s+(${ident})\s*(?:\([^)]*\))?\s+as\s*\(`, 'gi');
+  while ((m = cteRe.exec(cleaned)) !== null) {
+    const name = unbracket(m[1]);
+    ctes.set(name.toLowerCase(), name);
+  }
+
+  return { aliases, ctes };
+};
+
+type Context = 'after_from' | 'expression' | 'unknown';
+const detectContext = (lineToCursor: string, fullSql: string, offset: number): Context => {
+  const before = lineToCursor.replace(/(?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@.\[\]]*)$/, '');
+  if (/\b(?:from|join|update|into|table)\s*$/i.test(before)) return 'after_from';
+  const head = fullSql.slice(0, offset).toLowerCase();
+  const lastFrom = Math.max(head.lastIndexOf(' from '), head.lastIndexOf('\nfrom '));
+  const lastSelect = Math.max(head.lastIndexOf('select '), head.lastIndexOf('\nselect '));
+  if (lastSelect > lastFrom) return 'expression';
+  const lastWhere = head.lastIndexOf('where ');
+  const lastGroup = head.lastIndexOf('group by');
+  const lastOrder = head.lastIndexOf('order by');
+  const lastHaving = head.lastIndexOf('having ');
+  if (Math.max(lastWhere, lastGroup, lastOrder, lastHaving) > lastFrom) return 'expression';
+  return 'unknown';
+};
 
 const newTabId = () => `t${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 const blankTab = (n: number): EditorTab => ({
@@ -258,7 +327,7 @@ function QueryEditor({ ctx }: Props) {
     if (!completionDisposableRef.current) {
       completionDisposableRef.current = monaco.languages.registerCompletionItemProvider('sql', {
         triggerCharacters: ['.', '['],
-        provideCompletionItems: (model: any, position: any) => {
+        provideCompletionItems: (model: any, position: any, context: any) => {
           const lineToCursor = model.getValueInRange({
             startLineNumber: position.lineNumber,
             startColumn: 1,
@@ -266,29 +335,29 @@ function QueryEditor({ ctx }: Props) {
             endColumn: position.column,
           });
 
-          // Pull the trailing dotted identifier path: up to three identifiers
-          // separated by dots. Brackets [Foo] are stripped after capture.
+          // Up to four identifiers (db.schema.table.column) separated by dots.
           const tailMatch = lineToCursor.match(
-            /((?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)?(?:\.(?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)?){0,2})$/
+            /((?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)?(?:\.(?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)?){0,3})$/
           );
           const tail = tailMatch?.[1] || '';
           const rawParts = tail.split('.');
-          const parts = rawParts.map((p: string) => p.replace(/^\[|\]$/g, ''));
-          // The last segment is what the user is currently typing — replaced
-          // by the suggestion. Earlier segments are the qualifying context.
+          let parts = rawParts.map((p: string) => p.replace(/^\[|\]$/g, ''));
+          // If the user just typed a trailing dot, the last segment is empty
+          // — that's the prefix-of-nothing they're about to type. Keep all
+          // segments; the `qualifiers` array (parts minus last) drives lookup.
+          const qualifiers = parts.slice(0, -1).filter((p: string) => p.length > 0);
           const word = model.getWordUntilPosition(position);
+          // Trigger char `[` opens a bracketed identifier. Replace from the
+          // `[` instead of the empty word so we can write the full `[Name]`.
+          const triggeredByBracket = context?.triggerCharacter === '[';
           const range = {
             startLineNumber: position.lineNumber,
             endLineNumber: position.lineNumber,
-            startColumn: word.startColumn,
+            startColumn: triggeredByBracket ? word.startColumn - 1 : word.startColumn,
             endColumn: word.endColumn,
           };
 
           const ci = (s: string) => s.toLowerCase();
-          // Monaco ranks suggestions by sortText (lexicographic). We compute a
-          // rank against the prefix the user is currently typing so that
-          // prefix matches come first, then substring matches, then the rest.
-          // Within each tier we keep alphabetical order.
           const typed = ci(word.word || '');
           const rank = (label: string) => {
             const l = ci(label);
@@ -303,136 +372,187 @@ function QueryEditor({ ctx }: Props) {
           const activeSnap = activeDb ? cache.get(ci(activeDb)) : undefined;
 
           const tableKind = monaco.languages.CompletionItemKind.Struct;
+          const viewKind = monaco.languages.CompletionItemKind.Interface;
           const colKind = monaco.languages.CompletionItemKind.Field;
           const dbKind = monaco.languages.CompletionItemKind.Module;
           const schemaKind = monaco.languages.CompletionItemKind.Folder;
 
           const suggestions: any[] = [];
           const seen = new Set<string>();
+          const insertOf = (name: string) => {
+            const q = quoteIdent(name);
+            // If we consumed a leading `[`, drop it from the inserted text
+            // (the range covers it) — quoteIdent will re-add brackets if
+            // needed.
+            return triggeredByBracket && q.startsWith('[') ? q : q;
+          };
           const push = (s: any) => {
             const key = `${s.kind}:${s.label}`;
             if (seen.has(key)) return;
             seen.add(key);
-            // filterText drives Monaco's matcher; sortText drives ordering.
             if (s.filterText == null) s.filterText = s.label;
             if (s.sortText == null) s.sortText = rank(s.label);
+            if (s.range == null) s.range = range;
             suggestions.push(s);
           };
 
-          if (parts.length >= 3) {
-            // db.schema.<typing> — list tables in that db+schema only.
-            const [dbName, schemaName] = parts;
+          // Parse FROM/JOIN clauses to learn aliases + CTEs.
+          const fullSql = model.getValue();
+          const offset = model.getOffsetAt(position);
+          const aliasMap = parseFromClauses(fullSql);
+          const ctx = detectContext(lineToCursor, fullSql, offset);
+
+          // ── 4-part: db.schema.table.<col> ────────────────────────────────
+          if (qualifiers.length === 3) {
+            const [dbName, schemaName, tableName] = qualifiers;
             const snap = cache.get(ci(dbName));
             if (!snap) {
               ensureSchemaSnapshot(dbName);
-              push({
-                label: 'Loading…',
-                kind: tableKind,
-                insertText: '',
-                detail: `fetching tables for ${dbName}`,
-                range,
-                sortText: '9',
-              });
+              push({ label: 'Loading…', kind: colKind, insertText: '', detail: `fetching ${dbName}`, sortText: '9' });
             } else {
-              for (const t of snap.tables) {
-                if (ci(t.schema) === ci(schemaName)) {
-                  push({
-                    label: t.name,
-                    kind: tableKind,
-                    insertText: t.name,
-                    detail: `${dbName}.${schemaName}.${t.name}`,
-                    range,
-                  });
+              for (const c of snap.columns) {
+                if (ci(c.schema) === ci(schemaName) && ci(c.table) === ci(tableName)) {
+                  push({ label: c.name, kind: colKind, insertText: insertOf(c.name), detail: `${c.name} ${c.type}` });
                 }
               }
             }
-          } else if (parts.length === 2) {
-            // Two segments — meaning depends on what the first part is.
-            // If it's a database name, ONLY show schemas from that db.
-            // Otherwise fall through to schema→tables or table→columns.
-            const [first] = parts;
+            return { suggestions };
+          }
 
+          // ── 3-part: db.schema.<table>  OR  schema.table.<col> ────────────
+          if (qualifiers.length === 2) {
+            const [first, second] = qualifiers;
             const matchedDb = dbList.find((d) => ci(d) === ci(first));
             if (matchedDb) {
-              // first is a database → suggest only schemas inside it.
               const snap = cache.get(ci(matchedDb));
               if (!snap) {
                 ensureSchemaSnapshot(matchedDb);
-                push({
-                  label: 'Loading…',
-                  kind: schemaKind,
-                  insertText: '',
-                  detail: `fetching schemas for ${matchedDb}`,
-                  range,
-                  sortText: '9',
-                });
+                push({ label: 'Loading…', kind: tableKind, insertText: '', detail: `fetching ${matchedDb}`, sortText: '9' });
+              } else {
+                for (const t of snap.tables) {
+                  if (ci(t.schema) === ci(second)) {
+                    push({
+                      label: t.name,
+                      kind: t.kind === 'view' ? viewKind : tableKind,
+                      insertText: insertOf(t.name),
+                      detail: `${matchedDb}.${second}.${t.name}${t.kind === 'view' ? ' (view)' : ''}`,
+                    });
+                  }
+                }
+              }
+            } else if (activeSnap) {
+              // schema.table.<col> in active db
+              for (const c of activeSnap.columns) {
+                if (ci(c.schema) === ci(first) && ci(c.table) === ci(second)) {
+                  push({ label: c.name, kind: colKind, insertText: insertOf(c.name), detail: `${c.name} ${c.type}` });
+                }
+              }
+            }
+            return { suggestions };
+          }
+
+          // ── 2-part: db.<schema>  OR  schema.<table>  OR  alias/table.<col>
+          if (qualifiers.length === 1) {
+            const [first] = qualifiers;
+            const matchedDb = dbList.find((d) => ci(d) === ci(first));
+            if (matchedDb) {
+              const snap = cache.get(ci(matchedDb));
+              if (!snap) {
+                ensureSchemaSnapshot(matchedDb);
+                push({ label: 'Loading…', kind: schemaKind, insertText: '', detail: `fetching ${matchedDb}`, sortText: '9' });
               } else {
                 const schemas = new Set<string>();
                 for (const t of snap.tables) schemas.add(t.schema);
                 for (const s of schemas) {
+                  push({ label: s, kind: schemaKind, insertText: insertOf(s), detail: `schema in ${matchedDb}` });
+                }
+              }
+              return { suggestions };
+            }
+            if (activeSnap) {
+              // Alias resolution → columns.
+              const aliased = aliasMap.aliases.get(ci(first));
+              if (aliased) {
+                for (const c of activeSnap.columns) {
+                  const schemaOk = !aliased.schema || ci(c.schema) === ci(aliased.schema);
+                  if (schemaOk && ci(c.table) === ci(aliased.table)) {
+                    push({ label: c.name, kind: colKind, insertText: insertOf(c.name), detail: `${aliased.table}.${c.name} ${c.type}` });
+                  }
+                }
+                if (suggestions.length > 0) return { suggestions };
+              }
+              // first is a schema → tables in that schema.
+              for (const t of activeSnap.tables) {
+                if (ci(t.schema) === ci(first)) {
                   push({
-                    label: s,
-                    kind: schemaKind,
-                    insertText: s,
-                    detail: `schema in ${matchedDb}`,
-                    range,
+                    label: t.name,
+                    kind: t.kind === 'view' ? viewKind : tableKind,
+                    insertText: insertOf(t.name),
+                    detail: `${activeDb}.${t.schema}.${t.name}${t.kind === 'view' ? ' (view)' : ''}`,
                   });
                 }
               }
-            } else {
-              // Not a database — try schema→tables, then table→columns.
-              if (activeSnap) {
-                // (b) first is a schema in the active database → suggest its tables.
-                for (const t of activeSnap.tables) {
-                  if (ci(t.schema) === ci(first)) {
-                    push({
-                      label: t.name,
-                      kind: tableKind,
-                      insertText: t.name,
-                      detail: `${activeDb}.${t.schema}.${t.name}`,
-                      range,
-                    });
-                  }
+              // first is a bare table → columns.
+              for (const c of activeSnap.columns) {
+                if (ci(c.table) === ci(first)) {
+                  push({ label: c.name, kind: colKind, insertText: insertOf(c.name), detail: `${c.table}.${c.name} ${c.type}` });
                 }
+              }
+            }
+            return { suggestions };
+          }
 
-                // (c) first is a table in the active database → suggest its columns.
-                for (const c of activeSnap.columns) {
-                  if (ci(c.table) === ci(first)) {
-                    push({
-                      label: c.name,
-                      kind: colKind,
-                      insertText: c.name,
-                      detail: `${c.table}.${c.name} ${c.type}`,
-                      range,
-                    });
-                  }
+          // ── 1-part: top-level. Offer dbs, schemas, tables/views, plus
+          //    in-scope columns when the cursor isn't right after FROM/JOIN.
+          for (const d of dbList) {
+            push({ label: d, kind: dbKind, insertText: insertOf(d), detail: 'database' });
+          }
+          if (activeSnap) {
+            const schemas = new Set<string>();
+            for (const t of activeSnap.tables) schemas.add(t.schema);
+            for (const s of schemas) {
+              push({ label: s, kind: schemaKind, insertText: insertOf(s), detail: 'schema' });
+            }
+            for (const t of activeSnap.tables) {
+              push({
+                label: t.name,
+                kind: t.kind === 'view' ? viewKind : tableKind,
+                insertText: insertOf(t.name),
+                detail: `${t.schema}.${t.name}${t.kind === 'view' ? ' (view)' : ''}`,
+                // After FROM/JOIN, prefer tables; in expressions, demote them.
+                sortText: ctx === 'after_from' ? `0:${ci(t.name)}` : `2:${ci(t.name)}`,
+              });
+            }
+
+            // Columns from in-scope tables (alias parser) — only when we're
+            // in an expression position (SELECT / WHERE / GROUP / ORDER /
+            // HAVING). After FROM/JOIN it's noise.
+            if (ctx !== 'after_from' && aliasMap.aliases.size > 0) {
+              const inScope = new Set<string>();
+              for (const a of aliasMap.aliases.values()) inScope.add(ci(a.table));
+              for (const c of activeSnap.columns) {
+                if (inScope.has(ci(c.table))) {
+                  push({
+                    label: c.name,
+                    kind: colKind,
+                    insertText: insertOf(c.name),
+                    detail: `${c.table}.${c.name} ${c.type}`,
+                    sortText: `0:${ci(c.name)}`,
+                  });
                 }
               }
             }
-          } else {
-            // Single token (or empty) — offer databases on this server,
-            // plus schemas and tables from the active database. Columns are
-            // omitted here to keep the list manageable; they appear once you
-            // qualify with a table name (e.g. tableName.<col>).
-            for (const d of dbList) {
-              push({ label: d, kind: dbKind, insertText: d, detail: 'database', range });
-            }
-            if (activeSnap) {
-              const schemas = new Set<string>();
-              for (const t of activeSnap.tables) schemas.add(t.schema);
-              for (const s of schemas) {
-                push({ label: s, kind: schemaKind, insertText: s, detail: 'schema', range });
-              }
-              for (const t of activeSnap.tables) {
-                push({
-                  label: t.name,
-                  kind: tableKind,
-                  insertText: t.name,
-                  detail: `${t.schema}.${t.name}`,
-                  range,
-                });
-              }
-            }
+          }
+
+          // CTEs as table-like suggestions.
+          for (const cteName of aliasMap.ctes.values()) {
+            push({
+              label: cteName,
+              kind: tableKind,
+              insertText: insertOf(cteName),
+              detail: 'CTE',
+              sortText: ctx === 'after_from' ? `0:${ci(cteName)}` : `1:${ci(cteName)}`,
+            });
           }
 
           return { suggestions };
