@@ -39,14 +39,15 @@ const needsBrackets = (name: string) =>
 const quoteIdent = (name: string) => (needsBrackets(name) ? `[${name}]` : name);
 
 interface AliasMap {
-  aliases: Map<string, { schema?: string; table: string }>;
+  aliases: Map<string, { db?: string; schema?: string; table: string }>;
   ctes: Map<string, string>;
 }
 
-// Extract `FROM/JOIN [schema.]table [AS] alias` and `WITH cte AS (...)` from
-// the buffer so column suggestions can resolve unqualified names and aliases.
+// Extract `FROM/JOIN [db.][schema.]table [AS] alias` and `WITH cte AS (...)`
+// from the buffer so column suggestions can resolve unqualified names and
+// aliases — including the cross-database case (`db.schema.table`).
 const parseFromClauses = (sql: string): AliasMap => {
-  const aliases = new Map<string, { schema?: string; table: string }>();
+  const aliases = new Map<string, { db?: string; schema?: string; table: string }>();
   const ctes = new Map<string, string>();
   if (!sql) return { aliases, ctes };
   const cleaned = sql
@@ -59,23 +60,32 @@ const parseFromClauses = (sql: string): AliasMap => {
 
   // The negative lookahead before the alias capture prevents the regex from
   // greedy-eating the next clause keyword (JOIN, WHERE, ON, …) as an
-  // implicit alias — without it, `FROM users JOIN orders` parsed `JOIN` as
-  // the alias of `users`, advanced lastIndex past `JOIN`, and `orders` was
-  // never picked up, so WHERE-clause column suggestions silently dropped
-  // every joined table.
+  // implicit alias.
+  // The leading `(?:ident\s*\.\s*){0,2}` captures up to two qualifier dots
+  // (db. and schema.) so `FROM Sites.dbo.Sites` resolves to db=Sites,
+  // schema=dbo, table=Sites instead of dropping the real table name.
   const fromRe = new RegExp(
-    String.raw`\b(?:from|join)\s+(?:(${ident})\s*\.\s*)?(${ident})(?:\s+(?:as\s+)?(?!(?:${RESERVED_ALT})\b)(${ident}))?`,
+    String.raw`\b(?:from|join)\s+((?:${ident}\s*\.\s*){0,2})(${ident})(?:\s+(?:as\s+)?(?!(?:${RESERVED_ALT})\b)(${ident}))?`,
     'gi',
   );
   let m: RegExpExecArray | null;
   while ((m = fromRe.exec(cleaned)) !== null) {
-    const schema = m[1] ? unbracket(m[1]) : undefined;
+    const qualifiersRaw = m[1] || '';
     const table = unbracket(m[2]);
     const alias = m[3] ? unbracket(m[3]) : undefined;
+
+    // Split qualifiers — there are 0, 1, or 2 of them, each followed by a dot.
+    const quals: string[] = [];
+    const qRe = new RegExp(ident, 'gi');
+    let qm: RegExpExecArray | null;
+    while ((qm = qRe.exec(qualifiersRaw)) !== null) quals.push(unbracket(qm[0]));
+    const db = quals.length === 2 ? quals[0] : undefined;
+    const schema = quals.length === 2 ? quals[1] : quals[0];
+
     if (alias && !RESERVED.has(alias.toLowerCase())) {
-      aliases.set(alias.toLowerCase(), { schema, table });
+      aliases.set(alias.toLowerCase(), { db, schema, table });
     }
-    aliases.set(table.toLowerCase(), { schema, table });
+    aliases.set(table.toLowerCase(), { db, schema, table });
   }
 
   const cteRe = new RegExp(String.raw`\b(?:with|,)\s+(${ident})\s*(?:\([^)]*\))?\s+as\s*\(`, 'gi');
@@ -498,11 +508,20 @@ function QueryEditor({ ctx }: Props) {
               }
               return { suggestions };
             }
-            if (activeSnap) {
-              // Alias resolution → columns.
-              const aliased = aliasMap.aliases.get(ci(first));
-              if (aliased) {
-                for (const c of activeSnap.columns) {
+            // Alias resolution → columns. Pull from the FROM-referenced db's
+            // snapshot if the table lives in a different database, otherwise
+            // from the active db.
+            const aliased = aliasMap.aliases.get(ci(first));
+            if (aliased) {
+              const dbForLookup = aliased.db || activeDb;
+              const snap = dbForLookup ? cache.get(ci(dbForLookup)) : undefined;
+              if (!snap && dbForLookup) {
+                ensureSchemaSnapshot(dbForLookup);
+                push({ label: 'Loading…', kind: colKind, insertText: '', detail: `fetching ${dbForLookup}`, sortText: '9' });
+                return { suggestions };
+              }
+              if (snap) {
+                for (const c of snap.columns) {
                   const schemaOk = !aliased.schema || ci(c.schema) === ci(aliased.schema);
                   if (schemaOk && ci(c.table) === ci(aliased.table)) {
                     push({ label: c.name, kind: colKind, insertText: insertOf(c.name), detail: `${aliased.table}.${c.name} ${c.type}` });
@@ -510,6 +529,8 @@ function QueryEditor({ ctx }: Props) {
                 }
                 if (suggestions.length > 0) return { suggestions };
               }
+            }
+            if (activeSnap) {
               // first is a schema → tables in that schema.
               for (const t of activeSnap.tables) {
                 if (ci(t.schema) === ci(first)) {
@@ -553,19 +574,33 @@ function QueryEditor({ ctx }: Props) {
               });
             }
 
-            // Columns from in-scope tables (alias parser) — only when we're
-            // in an expression position (SELECT / WHERE / GROUP / ORDER /
-            // HAVING). After FROM/JOIN it's noise.
-            if (ctx !== 'after_from' && aliasMap.aliases.size > 0) {
-              const inScope = new Set<string>();
-              for (const a of aliasMap.aliases.values()) inScope.add(ci(a.table));
-              for (const c of activeSnap.columns) {
-                if (inScope.has(ci(c.table))) {
+          }
+
+          // Columns from in-scope tables (alias parser) — only in
+          // expression positions. Pulls from the FROM-referenced db's
+          // snapshot when the table reference crosses databases (e.g.
+          // `FROM Sites.dbo.Sites` while master is the active db).
+          if (ctx !== 'after_from' && aliasMap.aliases.size > 0) {
+            const seenTable = new Set<string>();
+            for (const a of aliasMap.aliases.values()) {
+              const key = `${ci(a.db || activeDb || '')}|${ci(a.schema || '')}|${ci(a.table)}`;
+              if (seenTable.has(key)) continue;
+              seenTable.add(key);
+              const dbForLookup = a.db || activeDb;
+              if (!dbForLookup) continue;
+              const snap = cache.get(ci(dbForLookup));
+              if (!snap) {
+                ensureSchemaSnapshot(dbForLookup);
+                continue;
+              }
+              for (const c of snap.columns) {
+                const schemaOk = !a.schema || ci(c.schema) === ci(a.schema);
+                if (schemaOk && ci(c.table) === ci(a.table)) {
                   push({
                     label: c.name,
                     kind: colKind,
                     insertText: insertOf(c.name),
-                    detail: `${c.table}.${c.name} ${c.type}`,
+                    detail: `${a.table}.${c.name} ${c.type}`,
                     sortText: `0:${ci(c.name)}`,
                   });
                 }
