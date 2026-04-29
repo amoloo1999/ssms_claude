@@ -331,6 +331,27 @@ function QueryEditor({ ctx }: Props) {
       handleExecuteRef.current();
     });
 
+    // Monaco's quickSuggestions only fires on word characters, so the popup
+    // never auto-opens at positions like `WHERE `, `AND `, or after a comma
+    // (the user has to type a letter or hit Ctrl+Space). Manually trigger
+    // suggest the moment the user types a space after a clause keyword or a
+    // comma — that's where columns would otherwise be invisibly available.
+    editor.onDidType((text: string) => {
+      if (text !== ' ' && text !== ',') return;
+      const pos = editor.getPosition();
+      if (!pos) return;
+      const lineToCursor = editor.getModel().getValueInRange({
+        startLineNumber: pos.lineNumber,
+        startColumn: 1,
+        endLineNumber: pos.lineNumber,
+        endColumn: pos.column,
+      });
+      const triggers = /(?:\b(?:where|and|or|having|on|by|set|when|case)\s+|,\s*)$/i;
+      if (triggers.test(lineToCursor)) {
+        editor.trigger('autocomplete', 'editor.action.triggerSuggest', {});
+      }
+    });
+
     // Register the completion provider once globally for the SQL language.
     if (!completionDisposableRef.current) {
       completionDisposableRef.current = monaco.languages.registerCompletionItemProvider('sql', {
