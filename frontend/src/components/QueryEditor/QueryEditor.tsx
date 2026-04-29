@@ -31,7 +31,9 @@ const RESERVED = new Set([
   'group','order','by','having','union','insert','update','delete','set',
   'values','top','distinct','case','when','then','else','end','and','or',
   'not','null','is','in','between','like','exists','with','into',
+  'apply','pivot','unpivot','option','for',
 ]);
+const RESERVED_ALT = [...RESERVED].join('|');
 const needsBrackets = (name: string) =>
   /[^A-Za-z0-9_$#@]/.test(name) || /^[0-9]/.test(name) || RESERVED.has(name.toLowerCase());
 const quoteIdent = (name: string) => (needsBrackets(name) ? `[${name}]` : name);
@@ -55,8 +57,14 @@ const parseFromClauses = (sql: string): AliasMap => {
   const ident = String.raw`(?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)`;
   const unbracket = (s: string) => s.replace(/^\[|\]$/g, '');
 
+  // The negative lookahead before the alias capture prevents the regex from
+  // greedy-eating the next clause keyword (JOIN, WHERE, ON, …) as an
+  // implicit alias — without it, `FROM users JOIN orders` parsed `JOIN` as
+  // the alias of `users`, advanced lastIndex past `JOIN`, and `orders` was
+  // never picked up, so WHERE-clause column suggestions silently dropped
+  // every joined table.
   const fromRe = new RegExp(
-    String.raw`\b(?:from|join)\s+(?:(${ident})\s*\.\s*)?(${ident})(?:\s+(?:as\s+)?(${ident}))?`,
+    String.raw`\b(?:from|join)\s+(?:(${ident})\s*\.\s*)?(${ident})(?:\s+(?:as\s+)?(?!(?:${RESERVED_ALT})\b)(${ident}))?`,
     'gi',
   );
   let m: RegExpExecArray | null;
