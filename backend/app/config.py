@@ -2,6 +2,32 @@ from pydantic_settings import BaseSettings
 from functools import lru_cache
 
 
+# Hardcoded role assignments. These can move to a DB-backed roles table later
+# when we wire up team/employees-table integration.
+REVMAN_EMAILS: frozenset[str] = frozenset({
+    "amoloo@williamwarren.com",
+    "chillyer@williamwarren.com",
+    "jwille@williamwarren.com",
+    "wfan@williamwarren.com",
+    "chporter@williamwarren.com",
+    "cpj@williamwarren.com",
+})
+
+# Approvers can review access requests + manage user grants.
+APPROVER_EMAILS: frozenset[str] = frozenset({
+    "amoloo@williamwarren.com",
+    "cpj@williamwarren.com",
+})
+
+
+def is_revman(email: str | None) -> bool:
+    return bool(email) and email.lower() in {e.lower() for e in REVMAN_EMAILS}
+
+
+def is_approver(email: str | None) -> bool:
+    return bool(email) and email.lower() in {e.lower() for e in APPROVER_EMAILS}
+
+
 class Settings(BaseSettings):
     app_name: str = "SQL Studio"
     secret_key: str = "change-me-in-production-use-a-real-secret-key"

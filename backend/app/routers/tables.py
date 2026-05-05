@@ -1,12 +1,53 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from starlette.requests import Request
 from app.database import get_db
 from app.auth import require_auth
-from app.models import TableEditRequest
+from app.config import is_revman
+from app.models import TableEditRequest, ServerConnection
 from app.services.connection import get_connection_string, execute_query
+from app.services.permissions import can_access_server, get_user_grants
 
 router = APIRouter(prefix="/api/tables", tags=["tables"])
+
+
+async def _check_read_access(
+    db: AsyncSession,
+    user: dict,
+    server_id: int,
+    database: str,
+    schema_name: str,
+    table_name: str,
+):
+    server = (
+        await db.execute(select(ServerConnection).where(ServerConnection.id == server_id))
+    ).scalar_one_or_none()
+    if not server or not can_access_server(user, server):
+        raise HTTPException(status_code=404, detail="Server not found")
+    if is_revman(user.get("email", "")):
+        return
+    grants = await get_user_grants(db, user["email"])
+    if (server_id, database.lower(), schema_name.lower(), table_name.lower()) not in grants:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "detail": f"You don't have access to [{database}].[{schema_name}].[{table_name}]",
+                "missing_tables": [
+                    {
+                        "server_id": server_id,
+                        "database": database,
+                        "schema": schema_name,
+                        "table": table_name,
+                    }
+                ],
+            },
+        )
+
+
+def _require_revman(user: dict):
+    if not is_revman(user.get("email", "")):
+        raise HTTPException(status_code=403, detail="Write operations require RevMan role")
 
 
 @router.get("/servers/{server_id}/databases/{database}/{schema_name}.{table_name}/data")
@@ -23,6 +64,7 @@ async def get_table_data(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    await _check_read_access(db, user, server_id, database, schema_name, table_name)
     conn_str = await get_connection_string(db, server_id, database)
 
     # Get total count
@@ -62,6 +104,7 @@ async def edit_cell(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    _require_revman(user)
     conn_str = await get_connection_string(db, edit.server_id, edit.database)
 
     # Build WHERE clause from primary keys
@@ -97,6 +140,7 @@ async def insert_row(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    _require_revman(user)
     conn_str = await get_connection_string(db, server_id, database)
 
     columns = list(row_data.keys())
@@ -124,6 +168,7 @@ async def delete_row(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    _require_revman(user)
     conn_str = await get_connection_string(db, server_id, database)
 
     where_parts = []

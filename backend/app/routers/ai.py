@@ -12,6 +12,7 @@ from app.models import (
 )
 from app.services.connection import get_connection_string
 from app.services import ai as ai_service
+from app.services.permissions import can_access_server
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -25,7 +26,7 @@ async def generate(
     server = (
         await db.execute(select(ServerConnection).where(ServerConnection.id == body.server_id))
     ).scalar_one_or_none()
-    if not server:
+    if not server or not can_access_server(user, server):
         raise HTTPException(status_code=404, detail="Server not found")
     try:
         result = ai_service.generate_sql(
@@ -53,7 +54,7 @@ async def find_data(
     server = (
         await db.execute(select(ServerConnection).where(ServerConnection.id == body.server_id))
     ).scalar_one_or_none()
-    if not server:
+    if not server or not can_access_server(user, server):
         raise HTTPException(status_code=404, detail="Server not found")
     try:
         result = ai_service.find_data(
@@ -72,6 +73,11 @@ async def fix(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    server = (
+        await db.execute(select(ServerConnection).where(ServerConnection.id == body.server_id))
+    ).scalar_one_or_none()
+    if not server or not can_access_server(user, server):
+        raise HTTPException(status_code=404, detail="Server not found")
     conn_str = await get_connection_string(db, body.server_id, body.database)
     try:
         result = ai_service.fix_sql(conn_str, body.database, body.sql, body.error)

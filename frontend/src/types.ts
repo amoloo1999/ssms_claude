@@ -6,6 +6,7 @@ export interface Server {
   username: string;
   description: string;
   from_config: boolean;
+  kind: 'main' | 'gp';
   created_at: string;
   updated_at: string | null;
 }
@@ -69,6 +70,41 @@ export interface User {
   email: string;
   name: string;
   picture: string;
+  role: 'revman' | 'user';
+  is_approver: boolean;
+}
+
+export interface MissingTable {
+  server_id: number;
+  database: string;
+  schema: string;
+  table: string;
+}
+
+export interface TablePermission {
+  id: number;
+  user_email: string;
+  server_id: number;
+  database: string;
+  schema_name: string;
+  table_name: string;
+  granted_by: string;
+  granted_at: string;
+}
+
+export interface AccessRequest {
+  id: number;
+  user_email: string;
+  server_id: number;
+  database: string;
+  schema_name: string;
+  table_name: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'denied';
+  created_at: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string;
 }
 
 export interface TreeNode {

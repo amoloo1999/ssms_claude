@@ -24,6 +24,8 @@ interface PropertiesModal {
 }
 
 function ObjectExplorer({ ctx }: Props) {
+  const isRevMan = ctx.user?.role === 'revman';
+
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [loadingNodes, setLoadingNodes] = useState<Set<string>>(new Set());
@@ -410,13 +412,17 @@ function ObjectExplorer({ ctx }: Props) {
           <div className="context-menu-item" onClick={() => handleSelectTop1000(contextMenu.node)}>
             Select Top 1000 Rows
           </div>
-          <div className="context-menu-separator" />
-          <div className="context-menu-item" onClick={() => handleRenameTable(contextMenu.node)}>
-            Rename Table
-          </div>
-          <div className="context-menu-item context-menu-danger" onClick={() => handleDeleteTable(contextMenu.node)}>
-            Delete Table
-          </div>
+          {isRevMan && (
+            <>
+              <div className="context-menu-separator" />
+              <div className="context-menu-item" onClick={() => handleRenameTable(contextMenu.node)}>
+                Rename Table
+              </div>
+              <div className="context-menu-item context-menu-danger" onClick={() => handleDeleteTable(contextMenu.node)}>
+                Delete Table
+              </div>
+            </>
+          )}
           <div className="context-menu-separator" />
           <div className="context-menu-item" onClick={() => handleRefreshTable(contextMenu.node)}>
             Refresh

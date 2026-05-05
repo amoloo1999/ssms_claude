@@ -9,8 +9,10 @@ from app.models import (
     ServerConnectionUpdate,
     ServerConnectionResponse,
 )
-from app.auth import require_auth
+from app.auth import require_auth, require_revman
+from app.config import is_revman
 from app.services.connection import build_connection_string, get_sql_connection
+from app.services.permissions import can_access_server
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
 
@@ -21,7 +23,8 @@ async def list_servers(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    # Show shared servers (from_config) + user's own servers
+    # Show shared servers (from_config) + user's own servers, then drop any
+    # the user can't access (non-RevMan: gp servers are hidden entirely).
     result = await db.execute(
         select(ServerConnection)
         .where(
@@ -32,7 +35,7 @@ async def list_servers(
         )
         .order_by(ServerConnection.name)
     )
-    return result.scalars().all()
+    return [s for s in result.scalars().all() if can_access_server(user, s)]
 
 
 @router.post("/", response_model=ServerConnectionResponse)
@@ -66,9 +69,11 @@ async def get_server(
     server = result.scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    # Allow access to shared servers or own servers
+    # Allow access to shared servers or own servers, then enforce role gating.
     if not server.from_config and server.owner_email != user["email"]:
         raise HTTPException(status_code=403, detail="Access denied")
+    if not can_access_server(user, server):
+        raise HTTPException(status_code=404, detail="Server not found")
     return server
 
 
@@ -87,8 +92,10 @@ async def update_server(
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
     if server.from_config:
-        raise HTTPException(status_code=403, detail="Cannot edit shared servers")
-    if server.owner_email != user["email"]:
+        # Only RevMan can edit shared servers (e.g. flip kind main↔gp).
+        if not is_revman(user.get("email", "")):
+            raise HTTPException(status_code=403, detail="Cannot edit shared servers")
+    elif server.owner_email != user["email"]:
         raise HTTPException(status_code=403, detail="Access denied")
 
     for key, value in update.model_dump(exclude_unset=True).items():
@@ -133,7 +140,7 @@ async def test_connection(
         select(ServerConnection).where(ServerConnection.id == server_id)
     )
     server = result.scalar_one_or_none()
-    if not server:
+    if not server or not can_access_server(user, server):
         raise HTTPException(status_code=404, detail="Server not found")
 
     try:

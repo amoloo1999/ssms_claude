@@ -1,11 +1,30 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from starlette.requests import Request
 from app.database import get_db
 from app.auth import require_auth
+from app.config import is_revman
+from app.models import ServerConnection
 from app.services.connection import get_connection_string, execute_query
+from app.services.permissions import (
+    can_access_server,
+    get_user_grants,
+    filter_visible_tables,
+)
 
 router = APIRouter(prefix="/api/explorer", tags=["explorer"])
+
+
+async def _resolve_server(
+    db: AsyncSession, user: dict, server_id: int
+) -> ServerConnection:
+    server = (
+        await db.execute(select(ServerConnection).where(ServerConnection.id == server_id))
+    ).scalar_one_or_none()
+    if not server or not can_access_server(user, server):
+        raise HTTPException(status_code=404, detail="Server not found")
+    return server
 
 
 @router.get("/servers/{server_id}/databases")
@@ -15,6 +34,7 @@ async def list_databases(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    server = await _resolve_server(db, user, server_id)
     conn_str = await get_connection_string(db, server_id)
     result = execute_query(
         conn_str,
@@ -22,7 +42,15 @@ async def list_databases(
     )
     if result["error"]:
         return {"error": result["error"], "databases": []}
-    return {"databases": [row[0] for row in result["rows"]]}
+    dbs = [row[0] for row in result["rows"]]
+    if not is_revman(user.get("email", "")):
+        # Hide system DBs and any DB the user has zero grants in. They can
+        # still ask AI to search across all DBs, but the explorer should look
+        # clean — only databases where they have at least one approved table.
+        grants = await get_user_grants(db, user["email"])
+        permitted_dbs = {dbn for sid, dbn, _, _ in grants if sid == server_id}
+        dbs = [d for d in dbs if d.lower() in permitted_dbs]
+    return {"databases": dbs}
 
 
 @router.get("/servers/{server_id}/databases/{database}/tables")
@@ -33,6 +61,7 @@ async def list_tables(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    await _resolve_server(db, user, server_id)
     conn_str = await get_connection_string(db, server_id, database)
     result = execute_query(
         conn_str,
@@ -45,10 +74,10 @@ async def list_tables(
     )
     if result["error"]:
         return {"error": result["error"], "tables": []}
+    tables = [{"schema": row[0], "name": row[1]} for row in result["rows"]]
+    grants = await get_user_grants(db, user["email"])
     return {
-        "tables": [
-            {"schema": row[0], "name": row[1]} for row in result["rows"]
-        ]
+        "tables": filter_visible_tables(user, grants, server_id, database, tables)
     }
 
 
@@ -60,7 +89,11 @@ async def schema_snapshot(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    """Compact tables + columns dump used by the editor's autocomplete provider."""
+    """Compact tables + columns dump used by the editor's autocomplete provider.
+
+    For RevMan: full snapshot. For non-RevMan: only their granted tables (so
+    autocomplete doesn't leak schema for tables they can't query)."""
+    await _resolve_server(db, user, server_id)
     conn_str = await get_connection_string(db, server_id, database)
     tbl_res = execute_query(
         conn_str,
@@ -81,20 +114,31 @@ async def schema_snapshot(
         ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
         """,
     )
-    return {
-        "tables": [
-            {
-                "schema": r[0],
-                "name": r[1],
-                "kind": "view" if r[2] == "VIEW" else "table",
-            }
-            for r in tbl_res["rows"]
-        ],
-        "columns": [
-            {"schema": r[0], "table": r[1], "name": r[2], "type": r[3]}
-            for r in (col_res["rows"] if not col_res["error"] else [])
-        ],
-    }
+
+    raw_tables = [
+        {
+            "schema": r[0],
+            "name": r[1],
+            "kind": "view" if r[2] == "VIEW" else "table",
+        }
+        for r in tbl_res["rows"]
+    ]
+    raw_cols = [
+        {"schema": r[0], "table": r[1], "name": r[2], "type": r[3]}
+        for r in (col_res["rows"] if not col_res["error"] else [])
+    ]
+
+    if not is_revman(user.get("email", "")):
+        grants = await get_user_grants(db, user["email"])
+        allowed = {
+            (sch, tbl)
+            for sid, dbn, sch, tbl in grants
+            if sid == server_id and dbn == database.lower()
+        }
+        raw_tables = [t for t in raw_tables if (t["schema"].lower(), t["name"].lower()) in allowed]
+        raw_cols = [c for c in raw_cols if (c["schema"].lower(), c["table"].lower()) in allowed]
+
+    return {"tables": raw_tables, "columns": raw_cols}
 
 
 @router.get("/servers/{server_id}/databases/{database}/views")
@@ -105,6 +149,7 @@ async def list_views(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    await _resolve_server(db, user, server_id)
     conn_str = await get_connection_string(db, server_id, database)
     result = execute_query(
         conn_str,
@@ -116,11 +161,10 @@ async def list_views(
     )
     if result["error"]:
         return {"error": result["error"], "views": []}
-    return {
-        "views": [
-            {"schema": row[0], "name": row[1]} for row in result["rows"]
-        ]
-    }
+    views = [{"schema": row[0], "name": row[1]} for row in result["rows"]]
+    grants = await get_user_grants(db, user["email"])
+    # Same TablePermission table covers views (Schema.Name pair).
+    return {"views": filter_visible_tables(user, grants, server_id, database, views)}
 
 
 @router.get("/servers/{server_id}/databases/{database}/procedures")
@@ -131,6 +175,10 @@ async def list_procedures(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    await _resolve_server(db, user, server_id)
+    # Non-RevMan can't EXEC anyway — hide procs entirely.
+    if not is_revman(user.get("email", "")):
+        return {"procedures": []}
     conn_str = await get_connection_string(db, server_id, database)
     result = execute_query(
         conn_str,
@@ -158,6 +206,9 @@ async def list_functions(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    await _resolve_server(db, user, server_id)
+    if not is_revman(user.get("email", "")):
+        return {"functions": []}
     conn_str = await get_connection_string(db, server_id, database)
     result = execute_query(
         conn_str,
@@ -187,6 +238,11 @@ async def get_table_columns(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    await _resolve_server(db, user, server_id)
+    if not is_revman(user.get("email", "")):
+        grants = await get_user_grants(db, user["email"])
+        if (server_id, database.lower(), schema_name.lower(), table_name.lower()) not in grants:
+            raise HTTPException(status_code=403, detail="No access to this table")
     conn_str = await get_connection_string(db, server_id, database)
     result = execute_query(
         conn_str,
@@ -242,6 +298,11 @@ async def get_table_indexes(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
+    await _resolve_server(db, user, server_id)
+    if not is_revman(user.get("email", "")):
+        grants = await get_user_grants(db, user["email"])
+        if (server_id, database.lower(), schema_name.lower(), table_name.lower()) not in grants:
+            raise HTTPException(status_code=403, detail="No access to this table")
     conn_str = await get_connection_string(db, server_id, database)
     result = execute_query(
         conn_str,

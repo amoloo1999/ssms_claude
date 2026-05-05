@@ -2,9 +2,9 @@ import { useState, useRef, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 import Split from 'react-split';
 import { AppContext } from '../../App';
-import { executeQuery, exportData, getSchemaSnapshot } from '../../services/api';
+import { executeQuery, exportData, getSchemaSnapshot, requestAccess } from '../../services/api';
 import ResultsGrid from '../ResultsGrid/ResultsGrid';
-import { QueryResult } from '../../types';
+import { QueryResult, MissingTable } from '../../types';
 import { VscPlay, VscExport, VscSparkle, VscAdd, VscClose } from 'react-icons/vsc';
 import AIAssistant from '../AIAssistant/AIAssistant';
 import './QueryEditor.css';
@@ -19,6 +19,7 @@ interface EditorTab {
   sql: string;
   result: QueryResult | null;
   activeResultTab: number;
+  missingTables?: MissingTable[];
 }
 
 interface SchemaSnapshot {
@@ -299,16 +300,27 @@ function QueryEditor({ ctx }: Props) {
     try {
       const queryToRun = getActiveSQL();
       const res = await executeQuery(selectedServer, selectedDb, queryToRun);
-      updateTab(targetId, { result: res, activeResultTab: 0 });
+      updateTab(targetId, { result: res, activeResultTab: 0, missingTables: undefined });
     } catch (err: any) {
+      // Permissions errors come back as `detail = {detail, missing_tables}`.
+      const raw = err.response?.data?.detail;
+      let message: string;
+      let missing: MissingTable[] | undefined;
+      if (raw && typeof raw === 'object') {
+        message = raw.detail || 'Access denied';
+        missing = raw.missing_tables;
+      } else {
+        message = raw || err.message;
+      }
       updateTab(targetId, {
         result: {
           columns: [],
           rows: [],
           row_count: 0,
           execution_time_ms: 0,
-          error: err.response?.data?.detail || err.message,
+          error: message,
         },
+        missingTables: missing,
       });
     } finally {
       setRunning(false);
@@ -782,6 +794,38 @@ function QueryEditor({ ctx }: Props) {
               result.error ? (
                 <div className="result-error">
                   <strong>Error:</strong> {result.error}
+                  {activeTab?.missingTables && activeTab.missingTables.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ marginBottom: 6, fontSize: 12, opacity: 0.85 }}>
+                        Request access to:
+                      </div>
+                      {activeTab.missingTables.map((m, i) => (
+                        <button
+                          key={i}
+                          className="export-btn"
+                          style={{ marginRight: 6, marginBottom: 6 }}
+                          onClick={async () => {
+                            try {
+                              await requestAccess({
+                                server_id: m.server_id,
+                                database: m.database,
+                                schema_name: m.schema,
+                                table_name: m.table,
+                                reason: '',
+                              });
+                              alert(
+                                `Access requested for [${m.database}].[${m.schema}].[${m.table}]`,
+                              );
+                            } catch (err: any) {
+                              alert(err.response?.data?.detail || err.message);
+                            }
+                          }}
+                        >
+                          [{m.database}].[{m.schema}].[{m.table}]
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div style={{ marginTop: 8 }}>
                     <button className="export-btn" onClick={() => setAiOpen(true)}>
                       <VscSparkle /> Ask AI to fix

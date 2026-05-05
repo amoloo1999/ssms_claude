@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.sql import func
-from app.config import get_settings
+from app.config import get_settings, is_revman, is_approver
 from app.database import get_db
 from app.models import User, UserResponse
 
@@ -75,12 +75,21 @@ async def auth_callback(request: Request, db: AsyncSession = Depends(get_db)):
     return RedirectResponse(url=str(request.base_url))
 
 
+def _decorate_user(user: dict) -> dict:
+    email = user.get("email", "")
+    return {
+        **user,
+        "role": "revman" if is_revman(email) else "user",
+        "is_approver": is_approver(email),
+    }
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_current_user(request: Request):
     user = request.session.get("user")
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return user
+    return _decorate_user(user)
 
 
 @router.get("/logout")
@@ -93,4 +102,18 @@ def require_auth(request: Request):
     user = request.session.get("user")
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    return _decorate_user(user)
+
+
+def require_revman(request: Request):
+    user = require_auth(request)
+    if user.get("role") != "revman":
+        raise HTTPException(status_code=403, detail="RevMan role required")
+    return user
+
+
+def require_approver(request: Request):
+    user = require_auth(request)
+    if not user.get("is_approver"):
+        raise HTTPException(status_code=403, detail="Approver role required")
     return user

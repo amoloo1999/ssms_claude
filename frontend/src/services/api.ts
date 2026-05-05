@@ -109,6 +109,38 @@ export const editCell = (data: {
 export const insertRow = (serverId: number, database: string, schema: string, table: string, rowData: any) =>
   api.post(`/api/tables/servers/${serverId}/databases/${database}/${schema}.${table}/row`, rowData).then((r) => r.data);
 
+// ── Permissions ──
+
+export const getMyGrants = () => api.get('/api/permissions/me').then((r) => r.data);
+export const getMyRequests = () => api.get('/api/permissions/my-requests').then((r) => r.data);
+export const requestAccess = (data: {
+  server_id: number;
+  database: string;
+  schema_name?: string;
+  table_name: string;
+  reason?: string;
+}) => api.post('/api/permissions/request', data).then((r) => r.data);
+
+export const listAccessRequests = (status?: string) =>
+  api.get('/api/permissions/requests', { params: status ? { status } : {} }).then((r) => r.data);
+export const approveRequest = (id: number, note: string = '') =>
+  api.post(`/api/permissions/requests/${id}/approve`, { note }).then((r) => r.data);
+export const denyRequest = (id: number, note: string = '') =>
+  api.post(`/api/permissions/requests/${id}/deny`, { note }).then((r) => r.data);
+export const listAllGrants = (userEmail?: string) =>
+  api
+    .get('/api/permissions/grants', { params: userEmail ? { user_email: userEmail } : {} })
+    .then((r) => r.data);
+export const createGrant = (data: {
+  user_email: string;
+  server_id: number;
+  database: string;
+  schema_name?: string;
+  table_name: string;
+}) => api.post('/api/permissions/grants', data).then((r) => r.data);
+export const revokeGrant = (id: number) =>
+  api.delete(`/api/permissions/grants/${id}`).then((r) => r.data);
+
 // ── Export ──
 
 export const exportData = async (serverId: number, database: string, sql: string, format: string) => {

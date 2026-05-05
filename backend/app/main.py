@@ -20,6 +20,7 @@ from app.routers.query import router as query_router
 from app.routers.tables import router as tables_router
 from app.routers.export import router as export_router
 from app.routers.ai import router as ai_router
+from app.routers.permissions import router as permissions_router
 
 settings = get_settings()
 
@@ -54,6 +55,7 @@ async def seed_servers_from_config():
                     username=server_cfg["username"],
                     password=server_cfg["password"],
                     description=server_cfg.get("description", ""),
+                    kind=server_cfg.get("kind", "main"),
                     from_config=True,
                 )
             )
@@ -99,6 +101,7 @@ app.include_router(query_router)
 app.include_router(tables_router)
 app.include_router(export_router)
 app.include_router(ai_router)
+app.include_router(permissions_router)
 
 
 @app.get("/health")

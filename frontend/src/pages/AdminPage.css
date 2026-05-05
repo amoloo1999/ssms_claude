@@ -1,0 +1,186 @@
+.admin-page {
+  padding: 20px;
+  overflow: auto;
+  height: 100%;
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.admin-header h2 {
+  margin: 0;
+}
+
+.admin-section {
+  margin-bottom: 32px;
+}
+
+.admin-section h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #999;
+}
+
+.admin-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.admin-subhead h3 {
+  margin: 0;
+}
+
+.admin-empty {
+  padding: 16px;
+  background: #252526;
+  border: 1px dashed #3c3c3c;
+  color: #888;
+  font-style: italic;
+  border-radius: 4px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid #3c3c3c;
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.admin-table th {
+  background: #2d2d30;
+  color: #ccc;
+  font-weight: 600;
+}
+
+.admin-table tr:last-child td {
+  border-bottom: none;
+}
+
+.admin-table code {
+  background: #1e1e1e;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: #ce9178;
+}
+
+.admin-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-approve,
+.btn-deny {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.btn-approve {
+  background: #0e7c3f;
+  color: white;
+}
+
+.btn-approve:hover {
+  background: #0a9446;
+}
+
+.btn-deny {
+  background: #6a1b1b;
+  color: #fff;
+}
+
+.btn-deny:hover {
+  background: #851d1d;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: #0e639c;
+  border: none;
+  color: white;
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.action-btn:hover {
+  background: #1177bb;
+}
+
+.user-grants-block {
+  margin-bottom: 16px;
+}
+
+.user-grants-header {
+  background: #2d2d30;
+  color: #4ec9b0;
+  padding: 6px 12px;
+  font-weight: 600;
+  font-size: 13px;
+  border: 1px solid #3c3c3c;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+}
+
+.user-grants-block .admin-table {
+  border-radius: 0 0 4px 4px;
+}
+
+.grant-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+}
+
+.grant-form input,
+.grant-form select {
+  padding: 6px 10px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #3c3c3c;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+tr.status-approved td:nth-child(3) {
+  color: #6a9955;
+}
+
+tr.status-denied td:nth-child(3) {
+  color: #f48771;
+}

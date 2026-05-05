@@ -6,6 +6,8 @@ import ObjectExplorer from '../ObjectExplorer/ObjectExplorer';
 import QueryEditor from '../QueryEditor/QueryEditor';
 import TableBrowser from '../TableBrowser/TableBrowser';
 import ServerManager from '../ServerManager/ServerManager';
+import AdminPage from '../../pages/AdminPage';
+import MyAccessPage from '../../pages/MyAccessPage';
 import './Layout.css';
 
 interface Props {
@@ -21,6 +23,9 @@ function Layout({ ctx }: Props) {
     await logout();
     window.location.href = '/login';
   };
+
+  const isRevMan = ctx.user?.role === 'revman';
+  const isApprover = !!ctx.user?.is_approver;
 
   return (
     <div className="layout">
@@ -42,19 +47,41 @@ function Layout({ ctx }: Props) {
             >
               Table Browser
             </button>
-            <button
-              className={`tab-btn ${ctx.activeTab === 'schema' ? 'active' : ''}`}
-              onClick={() => ctx.setActiveTab('schema')}
-            >
-              Server Manager
-            </button>
+            {isRevMan && (
+              <button
+                className={`tab-btn ${ctx.activeTab === 'schema' ? 'active' : ''}`}
+                onClick={() => ctx.setActiveTab('schema')}
+              >
+                Server Manager
+              </button>
+            )}
+            {!isRevMan && (
+              <button
+                className={`tab-btn ${ctx.activeTab === 'my-access' ? 'active' : ''}`}
+                onClick={() => ctx.setActiveTab('my-access')}
+              >
+                My Access
+              </button>
+            )}
+            {isApprover && (
+              <button
+                className={`tab-btn ${ctx.activeTab === 'admin' ? 'active' : ''}`}
+                onClick={() => ctx.setActiveTab('admin')}
+              >
+                Admin
+              </button>
+            )}
           </div>
         </div>
         <div className="topbar-right">
           {ctx.user && (
             <>
               <img src={ctx.user.picture} alt="" className="avatar" />
-              <span className="user-name">{ctx.user.name}</span>
+              <span className="user-name">
+                {ctx.user.name}
+                {isRevMan && <span className="role-badge role-revman">RevMan</span>}
+                {!isRevMan && <span className="role-badge role-user">View</span>}
+              </span>
               <button className="logout-btn" onClick={handleLogout}>
                 Logout
               </button>
@@ -83,7 +110,9 @@ function Layout({ ctx }: Props) {
             {ctx.activeTab === 'table' && ctx.activeTable && (
               <TableBrowser ctx={ctx} />
             )}
-            {ctx.activeTab === 'schema' && <ServerManager ctx={ctx} />}
+            {ctx.activeTab === 'schema' && isRevMan && <ServerManager ctx={ctx} />}
+            {ctx.activeTab === 'admin' && isApprover && <AdminPage ctx={ctx} />}
+            {ctx.activeTab === 'my-access' && !isRevMan && <MyAccessPage ctx={ctx} />}
           </div>
         </Split>
       </div>

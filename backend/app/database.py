@@ -21,9 +21,10 @@ async def get_db() -> AsyncSession:
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migrations
+        # Migrations (idempotent — failures swallowed when column already exists)
         for migration in [
             "ALTER TABLE server_connections ADD COLUMN owner_email VARCHAR",
+            "ALTER TABLE server_connections ADD COLUMN kind VARCHAR DEFAULT 'main'",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_server_host_port_config ON server_connections(host, port) WHERE from_config = 1",
         ]:
             try:
