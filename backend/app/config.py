@@ -6,6 +6,7 @@ from functools import lru_cache
 # when we wire up team/employees-table integration.
 REVMAN_EMAILS: frozenset[str] = frozenset({
     "amoloo@williamwarren.com",
+    "chillyer@williamwarren.com",
     "jwille@williamwarren.com",
     "wfan@williamwarren.com",
     "chporter@williamwarren.com",
