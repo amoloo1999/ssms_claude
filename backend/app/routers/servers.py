@@ -10,7 +10,6 @@ from app.models import (
     ServerConnectionResponse,
 )
 from app.auth import require_auth, require_revman
-from app.config import is_revman
 from app.services.connection import build_connection_string, get_sql_connection
 from app.services.permissions import can_access_server
 
@@ -43,8 +42,11 @@ async def create_server(
     server: ServerConnectionCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(require_auth),
+    user: dict = Depends(require_revman),
 ):
+    # RevMan-only: a non-RevMan creating their own server (kind defaults to
+    # 'main') would bypass the per-table permission system entirely, since
+    # can_access_server returns True for any main-kind server.
     db_server = ServerConnection(
         **server.model_dump(),
         from_config=False,
@@ -83,7 +85,7 @@ async def update_server(
     update: ServerConnectionUpdate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(require_auth),
+    user: dict = Depends(require_revman),
 ):
     result = await db.execute(
         select(ServerConnection).where(ServerConnection.id == server_id)
@@ -91,13 +93,6 @@ async def update_server(
     server = result.scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    if server.from_config:
-        # Only RevMan can edit shared servers (e.g. flip kind main↔gp).
-        if not is_revman(user.get("email", "")):
-            raise HTTPException(status_code=403, detail="Cannot edit shared servers")
-    elif server.owner_email != user["email"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-
     for key, value in update.model_dump(exclude_unset=True).items():
         setattr(server, key, value)
 
@@ -111,7 +106,7 @@ async def delete_server(
     server_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(require_auth),
+    user: dict = Depends(require_revman),
 ):
     result = await db.execute(
         select(ServerConnection).where(ServerConnection.id == server_id)
@@ -121,8 +116,6 @@ async def delete_server(
         raise HTTPException(status_code=404, detail="Server not found")
     if server.from_config:
         raise HTTPException(status_code=403, detail="Cannot delete shared servers")
-    if server.owner_email != user["email"]:
-        raise HTTPException(status_code=403, detail="Access denied")
 
     await db.delete(server)
     await db.commit()
