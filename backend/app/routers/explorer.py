@@ -11,6 +11,7 @@ from app.services.permissions import (
     can_access_server,
     get_user_grants,
     filter_visible_tables,
+    grant_covers,
 )
 
 router = APIRouter(prefix="/api/explorer", tags=["explorer"])
@@ -44,12 +45,10 @@ async def list_databases(
         return {"error": result["error"], "databases": []}
     dbs = [row[0] for row in result["rows"]]
     if not is_revman(user.get("email", "")):
-        # Hide system DBs and any DB the user has zero grants in. They can
-        # still ask AI to search across all DBs, but the explorer should look
-        # clean — only databases where they have at least one approved table.
+        # Show only databases the user has any grant in. Wildcard-aware:
+        # a database-wide or server-wide grant matches via grant_covers.
         grants = await get_user_grants(db, user["email"])
-        permitted_dbs = {dbn for sid, dbn, _, _ in grants if sid == server_id}
-        dbs = [d for d in dbs if d.lower() in permitted_dbs]
+        dbs = [d for d in dbs if grant_covers(grants, server_id, d)]
     return {"databases": dbs}
 
 
@@ -241,7 +240,7 @@ async def get_table_columns(
     await _resolve_server(db, user, server_id)
     if not is_revman(user.get("email", "")):
         grants = await get_user_grants(db, user["email"])
-        if (server_id, database.lower(), schema_name.lower(), table_name.lower()) not in grants:
+        if not grant_covers(grants, server_id, database, schema_name, table_name):
             raise HTTPException(status_code=403, detail="No access to this table")
     conn_str = await get_connection_string(db, server_id, database)
     result = execute_query(
@@ -301,7 +300,7 @@ async def get_table_indexes(
     await _resolve_server(db, user, server_id)
     if not is_revman(user.get("email", "")):
         grants = await get_user_grants(db, user["email"])
-        if (server_id, database.lower(), schema_name.lower(), table_name.lower()) not in grants:
+        if not grant_covers(grants, server_id, database, schema_name, table_name):
             raise HTTPException(status_code=403, detail="No access to this table")
     conn_str = await get_connection_string(db, server_id, database)
     result = execute_query(

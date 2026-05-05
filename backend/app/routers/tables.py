@@ -7,7 +7,7 @@ from app.auth import require_auth
 from app.config import is_revman
 from app.models import TableEditRequest, ServerConnection
 from app.services.connection import get_connection_string, execute_query
-from app.services.permissions import can_access_server, get_user_grants
+from app.services.permissions import can_access_server, get_user_grants, grant_covers
 
 router = APIRouter(prefix="/api/tables", tags=["tables"])
 
@@ -28,7 +28,7 @@ async def _check_read_access(
     if is_revman(user.get("email", "")):
         return
     grants = await get_user_grants(db, user["email"])
-    if (server_id, database.lower(), schema_name.lower(), table_name.lower()) not in grants:
+    if not grant_covers(grants, server_id, database, schema_name, table_name):
         raise HTTPException(
             status_code=403,
             detail={

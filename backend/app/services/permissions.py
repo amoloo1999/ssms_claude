@@ -32,8 +32,10 @@ def can_write(user: dict) -> bool:
 async def get_user_grants(
     db: AsyncSession, email: str
 ) -> set[tuple[int, str, str, str]]:
-    """Return the user's table grants as a lowercased set of
-    (server_id, database, schema_name, table_name) tuples for fast lookup."""
+    """Return the user's grants as a lowercased set of
+    (server_id, database, schema_name, table_name) tuples. Any of the string
+    fields may be the literal '*' to mean "all" — that's how database-wide
+    and server-wide grants are stored."""
     result = await db.execute(
         select(TablePermission).where(TablePermission.user_email == email)
     )
@@ -44,18 +46,41 @@ async def get_user_grants(
     }
 
 
-def _filter_grants_for(
-    grants: set[tuple[int, str, str, str]], server_id: int, database: str | None = None
-) -> set[tuple[str, str]]:
-    """Project grants down to (schema, table) pairs for one server (+ optional db)."""
-    out: set[tuple[str, str]] = set()
-    for sid, dbn, sch, tbl in grants:
+def _wc_match(grant_value: str, actual: str) -> bool:
+    return grant_value == "*" or grant_value == actual.lower()
+
+
+def grant_covers(
+    grants: set[tuple[int, str, str, str]],
+    server_id: int,
+    database: str | None = None,
+    schema_name: str | None = None,
+    table_name: str | None = None,
+) -> bool:
+    """True if any grant in the set covers the requested target. Pass None for
+    levels you don't care about (e.g. for `list_databases` you only check
+    server_id + database)."""
+    for sid, gdb, gsch, gtbl in grants:
         if sid != server_id:
             continue
-        if database is not None and dbn != database.lower():
+        if database is not None and not _wc_match(gdb, database):
             continue
-        out.add((sch, tbl))
-    return out
+        if schema_name is not None and not _wc_match(gsch, schema_name):
+            continue
+        if table_name is not None and not _wc_match(gtbl, table_name):
+            continue
+        return True
+    return False
+
+
+def has_server_wide_grant(
+    grants: set[tuple[int, str, str, str]], server_id: int
+) -> bool:
+    """User has a grant covering the entire server (db=schema=table='*')."""
+    return any(
+        sid == server_id and gdb == "*" and gsch == "*" and gtbl == "*"
+        for sid, gdb, gsch, gtbl in grants
+    )
 
 
 # ── SQL safety / table extraction ────────────────────────────────────────────
@@ -165,8 +190,7 @@ async def check_query_permissions(
     refs = extract_referenced_tables(sql, database)
     missing: list[dict] = []
     for ref_db, sch, tbl in refs:
-        key = (server_id, ref_db.lower(), sch.lower(), tbl.lower())
-        if key not in grants:
+        if not grant_covers(grants, server_id, ref_db, sch, tbl):
             missing.append(
                 {
                     "server_id": server_id,
@@ -191,14 +215,15 @@ def filter_visible_tables(
     database: str,
     tables: list[dict],
 ) -> list[dict]:
-    """Drop tables the (non-RevMan) user has no grant for. RevMan: pass-through."""
+    """Drop tables the (non-RevMan) user has no grant for. Wildcard-aware:
+    a database-wide grant lets every table through; a server-wide grant
+    short-circuits the loop. RevMan: pass-through."""
     if is_revman(user.get("email", "")):
         return tables
-    allowed = _filter_grants_for(grants, server_id, database)
     out: list[dict] = []
     for t in tables:
         sch = t.get("schema", "dbo")
         nm = t.get("name", "")
-        if (sch.lower(), nm.lower()) in allowed:
+        if grant_covers(grants, server_id, database, sch, nm):
             out.append(t)
     return out

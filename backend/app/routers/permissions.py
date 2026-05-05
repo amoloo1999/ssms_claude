@@ -24,6 +24,16 @@ from app.services.permissions import can_access_server
 router = APIRouter(prefix="/api/permissions", tags=["permissions"])
 
 
+def _apply_scope(scope: str, database: str, schema_name: str, table_name: str) -> tuple[str, str, str]:
+    """Normalize scope → DB/schema/table fields. 'server' = all wildcards;
+    'database' = wildcard schema+table; 'table' = exact triple."""
+    if scope == "server":
+        return "*", "*", "*"
+    if scope == "database":
+        return database, "*", "*"
+    return database, schema_name, table_name
+
+
 @router.get("/me", response_model=list[TablePermissionResponse])
 async def list_my_grants(
     db: AsyncSession = Depends(get_db),
@@ -68,15 +78,19 @@ async def create_request(
     if not server or not can_access_server(user, server):
         raise HTTPException(status_code=404, detail="Server not found")
 
+    db_name, sch_name, tbl_name = _apply_scope(
+        body.scope, body.database, body.schema_name, body.table_name
+    )
+
     # Block dupes for the same pending target.
     dupe = await db.execute(
         select(AccessRequest).where(
             and_(
                 AccessRequest.user_email == user["email"],
                 AccessRequest.server_id == body.server_id,
-                AccessRequest.database == body.database,
-                AccessRequest.schema_name == body.schema_name,
-                AccessRequest.table_name == body.table_name,
+                AccessRequest.database == db_name,
+                AccessRequest.schema_name == sch_name,
+                AccessRequest.table_name == tbl_name,
                 AccessRequest.status == "pending",
             )
         )
@@ -88,9 +102,9 @@ async def create_request(
     req = AccessRequest(
         user_email=user["email"],
         server_id=body.server_id,
-        database=body.database,
-        schema_name=body.schema_name,
-        table_name=body.table_name,
+        database=db_name,
+        schema_name=sch_name,
+        table_name=tbl_name,
         reason=body.reason,
     )
     db.add(req)
@@ -202,14 +216,17 @@ async def create_grant(
     user: dict = Depends(require_approver),
 ):
     """Direct grant — used by Admin UI to give access without a prior request."""
+    db_name, sch_name, tbl_name = _apply_scope(
+        body.scope, body.database, body.schema_name, body.table_name
+    )
     existing = await db.execute(
         select(TablePermission).where(
             and_(
                 TablePermission.user_email == body.user_email,
                 TablePermission.server_id == body.server_id,
-                TablePermission.database == body.database,
-                TablePermission.schema_name == body.schema_name,
-                TablePermission.table_name == body.table_name,
+                TablePermission.database == db_name,
+                TablePermission.schema_name == sch_name,
+                TablePermission.table_name == tbl_name,
             )
         )
     )
@@ -220,9 +237,9 @@ async def create_grant(
     grant = TablePermission(
         user_email=body.user_email,
         server_id=body.server_id,
-        database=body.database,
-        schema_name=body.schema_name,
-        table_name=body.table_name,
+        database=db_name,
+        schema_name=sch_name,
+        table_name=tbl_name,
         granted_by=user["email"],
     )
     db.add(grant)

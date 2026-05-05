@@ -21,9 +21,17 @@ function AdminPage({ ctx }: Props) {
   const [grants, setGrants] = useState<TablePermission[]>([]);
   const [loading, setLoading] = useState(false);
   const [showGrantForm, setShowGrantForm] = useState(false);
-  const [grantForm, setGrantForm] = useState({
+  const [grantForm, setGrantForm] = useState<{
+    user_email: string;
+    server_id: number;
+    scope: 'table' | 'database' | 'server';
+    database: string;
+    schema_name: string;
+    table_name: string;
+  }>({
     user_email: '',
     server_id: ctx.servers[0]?.id || 0,
+    scope: 'table',
     database: '',
     schema_name: 'dbo',
     table_name: '',
@@ -50,6 +58,23 @@ function AdminPage({ ctx }: Props) {
   const serverName = (id: number) =>
     ctx.servers.find((s) => s.id === id)?.name || `server #${id}`;
 
+  // Render grant/request target based on its wildcard pattern.
+  const renderTarget = (g: { database: string; schema_name: string; table_name: string }) => {
+    if (g.database === '*') return <em>(entire server)</em>;
+    if (g.table_name === '*' && g.schema_name === '*') {
+      return (
+        <>
+          <code>[{g.database}]</code> <em>(entire database)</em>
+        </>
+      );
+    }
+    return (
+      <code>
+        [{g.database}].[{g.schema_name}].[{g.table_name}]
+      </code>
+    );
+  };
+
   const handleApprove = async (id: number) => {
     await approveRequest(id);
     await refresh();
@@ -66,8 +91,16 @@ function AdminPage({ ctx }: Props) {
   };
 
   const handleCreateGrant = async () => {
-    if (!grantForm.user_email || !grantForm.database || !grantForm.table_name) {
-      alert('Email, database, and table name are required.');
+    if (!grantForm.user_email) {
+      alert('User email is required.');
+      return;
+    }
+    if (grantForm.scope !== 'server' && !grantForm.database) {
+      alert('Database is required for table and database grants.');
+      return;
+    }
+    if (grantForm.scope === 'table' && !grantForm.table_name) {
+      alert('Table name is required for table grants.');
       return;
     }
     await createGrant(grantForm);
@@ -112,9 +145,7 @@ function AdminPage({ ctx }: Props) {
                 <tr key={r.id}>
                   <td>{r.user_email}</td>
                   <td>
-                    <code>
-                      {serverName(r.server_id)} / [{r.database}].[{r.schema_name}].[{r.table_name}]
-                    </code>
+                    {serverName(r.server_id)} / {renderTarget(r)}
                   </td>
                   <td>{r.reason || <em>(no reason given)</em>}</td>
                   <td>{new Date(r.created_at).toLocaleString()}</td>
@@ -149,6 +180,17 @@ function AdminPage({ ctx }: Props) {
               onChange={(e) => setGrantForm({ ...grantForm, user_email: e.target.value })}
             />
             <select
+              value={grantForm.scope}
+              onChange={(e) =>
+                setGrantForm({ ...grantForm, scope: e.target.value as 'table' | 'database' | 'server' })
+              }
+              title="Scope"
+            >
+              <option value="table">Table</option>
+              <option value="database">Database</option>
+              <option value="server">Server</option>
+            </select>
+            <select
               value={grantForm.server_id}
               onChange={(e) => setGrantForm({ ...grantForm, server_id: Number(e.target.value) })}
             >
@@ -158,21 +200,27 @@ function AdminPage({ ctx }: Props) {
                 </option>
               ))}
             </select>
-            <input
-              placeholder="database"
-              value={grantForm.database}
-              onChange={(e) => setGrantForm({ ...grantForm, database: e.target.value })}
-            />
-            <input
-              placeholder="schema"
-              value={grantForm.schema_name}
-              onChange={(e) => setGrantForm({ ...grantForm, schema_name: e.target.value })}
-            />
-            <input
-              placeholder="table"
-              value={grantForm.table_name}
-              onChange={(e) => setGrantForm({ ...grantForm, table_name: e.target.value })}
-            />
+            {grantForm.scope !== 'server' && (
+              <input
+                placeholder="database"
+                value={grantForm.database}
+                onChange={(e) => setGrantForm({ ...grantForm, database: e.target.value })}
+              />
+            )}
+            {grantForm.scope === 'table' && (
+              <input
+                placeholder="schema"
+                value={grantForm.schema_name}
+                onChange={(e) => setGrantForm({ ...grantForm, schema_name: e.target.value })}
+              />
+            )}
+            {grantForm.scope === 'table' && (
+              <input
+                placeholder="table"
+                value={grantForm.table_name}
+                onChange={(e) => setGrantForm({ ...grantForm, table_name: e.target.value })}
+              />
+            )}
             <button className="btn-approve" onClick={handleCreateGrant}>
               <VscCheck /> Grant
             </button>
@@ -198,11 +246,7 @@ function AdminPage({ ctx }: Props) {
                   {userGrants.map((g) => (
                     <tr key={g.id}>
                       <td>{serverName(g.server_id)}</td>
-                      <td>
-                        <code>
-                          [{g.database}].[{g.schema_name}].[{g.table_name}]
-                        </code>
-                      </td>
+                      <td>{renderTarget(g)}</td>
                       <td>{g.granted_by}</td>
                       <td>{new Date(g.granted_at).toLocaleString()}</td>
                       <td>
@@ -238,9 +282,7 @@ function AdminPage({ ctx }: Props) {
                 <tr key={r.id} className={`status-${r.status}`}>
                   <td>{r.user_email}</td>
                   <td>
-                    <code>
-                      {serverName(r.server_id)} / [{r.database}].[{r.schema_name}].[{r.table_name}]
-                    </code>
+                    {serverName(r.server_id)} / {renderTarget(r)}
                   </td>
                   <td>{r.status}</td>
                   <td>{r.decided_by || ''}</td>

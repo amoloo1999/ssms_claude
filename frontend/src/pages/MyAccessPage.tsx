@@ -14,8 +14,16 @@ function MyAccessPage({ ctx }: Props) {
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    server_id: number;
+    scope: 'table' | 'database' | 'server';
+    database: string;
+    schema_name: string;
+    table_name: string;
+    reason: string;
+  }>({
     server_id: ctx.servers[0]?.id || 0,
+    scope: 'table',
     database: '',
     schema_name: 'dbo',
     table_name: '',
@@ -40,9 +48,29 @@ function MyAccessPage({ ctx }: Props) {
   const serverName = (id: number) =>
     ctx.servers.find((s) => s.id === id)?.name || `server #${id}`;
 
+  const renderTarget = (g: { database: string; schema_name: string; table_name: string }) => {
+    if (g.database === '*') return <em>(entire server)</em>;
+    if (g.table_name === '*' && g.schema_name === '*') {
+      return (
+        <>
+          <code>[{g.database}]</code> <em>(entire database)</em>
+        </>
+      );
+    }
+    return (
+      <code>
+        [{g.database}].[{g.schema_name}].[{g.table_name}]
+      </code>
+    );
+  };
+
   const handleSubmit = async () => {
-    if (!form.database || !form.table_name) {
-      alert('Database and table name are required.');
+    if (form.scope !== 'server' && !form.database) {
+      alert('Database is required for table and database requests.');
+      return;
+    }
+    if (form.scope === 'table' && !form.table_name) {
+      alert('Table name is required for table requests.');
       return;
     }
     try {
@@ -76,6 +104,17 @@ function MyAccessPage({ ctx }: Props) {
         {showForm && (
           <div className="grant-form">
             <select
+              value={form.scope}
+              onChange={(e) =>
+                setForm({ ...form, scope: e.target.value as 'table' | 'database' | 'server' })
+              }
+              title="Scope"
+            >
+              <option value="table">Table</option>
+              <option value="database">Database</option>
+              <option value="server">Server</option>
+            </select>
+            <select
               value={form.server_id}
               onChange={(e) => setForm({ ...form, server_id: Number(e.target.value) })}
             >
@@ -85,21 +124,27 @@ function MyAccessPage({ ctx }: Props) {
                 </option>
               ))}
             </select>
-            <input
-              placeholder="database"
-              value={form.database}
-              onChange={(e) => setForm({ ...form, database: e.target.value })}
-            />
-            <input
-              placeholder="schema (default dbo)"
-              value={form.schema_name}
-              onChange={(e) => setForm({ ...form, schema_name: e.target.value })}
-            />
-            <input
-              placeholder="table"
-              value={form.table_name}
-              onChange={(e) => setForm({ ...form, table_name: e.target.value })}
-            />
+            {form.scope !== 'server' && (
+              <input
+                placeholder="database"
+                value={form.database}
+                onChange={(e) => setForm({ ...form, database: e.target.value })}
+              />
+            )}
+            {form.scope === 'table' && (
+              <input
+                placeholder="schema (default dbo)"
+                value={form.schema_name}
+                onChange={(e) => setForm({ ...form, schema_name: e.target.value })}
+              />
+            )}
+            {form.scope === 'table' && (
+              <input
+                placeholder="table"
+                value={form.table_name}
+                onChange={(e) => setForm({ ...form, table_name: e.target.value })}
+              />
+            )}
             <input
               placeholder="reason (optional)"
               value={form.reason}
@@ -130,9 +175,7 @@ function MyAccessPage({ ctx }: Props) {
               {pending.map((r) => (
                 <tr key={r.id}>
                   <td>
-                    <code>
-                      {serverName(r.server_id)} / [{r.database}].[{r.schema_name}].[{r.table_name}]
-                    </code>
+                    {serverName(r.server_id)} / {renderTarget(r)}
                   </td>
                   <td>{r.reason || <em>(no reason)</em>}</td>
                   <td>{new Date(r.created_at).toLocaleString()}</td>
@@ -164,11 +207,7 @@ function MyAccessPage({ ctx }: Props) {
               {grants.map((g) => (
                 <tr key={g.id}>
                   <td>{serverName(g.server_id)}</td>
-                  <td>
-                    <code>
-                      [{g.database}].[{g.schema_name}].[{g.table_name}]
-                    </code>
-                  </td>
+                  <td>{renderTarget(g)}</td>
                   <td>{g.granted_by}</td>
                   <td>{new Date(g.granted_at).toLocaleString()}</td>
                 </tr>
@@ -195,11 +234,7 @@ function MyAccessPage({ ctx }: Props) {
                 .filter((r) => r.status !== 'pending')
                 .map((r) => (
                   <tr key={r.id} className={`status-${r.status}`}>
-                    <td>
-                      <code>
-                        [{r.database}].[{r.schema_name}].[{r.table_name}]
-                      </code>
-                    </td>
+                    <td>{renderTarget(r)}</td>
                     <td>{r.status}</td>
                     <td>{r.decided_by}</td>
                     <td>{r.decision_note}</td>

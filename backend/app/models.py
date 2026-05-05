@@ -216,16 +216,19 @@ class TablePermissionResponse(BaseModel):
 class TablePermissionCreate(BaseModel):
     user_email: str
     server_id: int
-    database: str
+    # 'table' = single table; 'database' = every table in this DB; 'server' = entire server.
+    scope: Literal["table", "database", "server"] = "table"
+    database: str = "*"
     schema_name: str = "dbo"
-    table_name: str
+    table_name: str = "*"
 
 
 class AccessRequestCreate(BaseModel):
     server_id: int
-    database: str
+    scope: Literal["table", "database", "server"] = "table"
+    database: str = "*"
     schema_name: str = "dbo"
-    table_name: str
+    table_name: str = "*"
     reason: str = ""
 
 

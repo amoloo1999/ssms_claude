@@ -115,9 +115,10 @@ export const getMyGrants = () => api.get('/api/permissions/me').then((r) => r.da
 export const getMyRequests = () => api.get('/api/permissions/my-requests').then((r) => r.data);
 export const requestAccess = (data: {
   server_id: number;
-  database: string;
+  scope?: 'table' | 'database' | 'server';
+  database?: string;
   schema_name?: string;
-  table_name: string;
+  table_name?: string;
   reason?: string;
 }) => api.post('/api/permissions/request', data).then((r) => r.data);
 
@@ -134,9 +135,10 @@ export const listAllGrants = (userEmail?: string) =>
 export const createGrant = (data: {
   user_email: string;
   server_id: number;
-  database: string;
+  scope?: 'table' | 'database' | 'server';
+  database?: string;
   schema_name?: string;
-  table_name: string;
+  table_name?: string;
 }) => api.post('/api/permissions/grants', data).then((r) => r.data);
 export const revokeGrant = (id: number) =>
   api.delete(`/api/permissions/grants/${id}`).then((r) => r.data);
