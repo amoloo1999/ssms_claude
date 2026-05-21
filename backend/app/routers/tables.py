@@ -6,7 +6,7 @@ from app.database import get_db
 from app.auth import require_auth
 from app.config import is_revman
 from app.models import TableEditRequest, ServerConnection
-from app.services.connection import get_connection_string, execute_query
+from app.services.connection import get_connection_string, execute_query_async
 from app.services.permissions import can_access_server, get_user_grants, grant_covers
 
 router = APIRouter(prefix="/api/tables", tags=["tables"])
@@ -68,7 +68,7 @@ async def get_table_data(
     conn_str = await get_connection_string(db, server_id, database)
 
     # Get total count
-    count_result = execute_query(
+    count_result = await execute_query_async(
         conn_str,
         f"SELECT COUNT(*) FROM [{schema_name}].[{table_name}]",
     )
@@ -86,7 +86,7 @@ async def get_table_data(
         FETCH NEXT {page_size} ROWS ONLY
     """
 
-    result = execute_query(conn_str, sql)
+    result = await execute_query_async(conn_str, sql)
 
     return {
         **result,
@@ -122,7 +122,7 @@ async def edit_cell(
         WHERE {where_clause}
     """
 
-    result = execute_query(conn_str, sql, tuple(params))
+    result = await execute_query_async(conn_str, sql, tuple(params))
 
     if result["error"]:
         return {"success": False, "error": result["error"]}
@@ -149,7 +149,7 @@ async def insert_row(
     values = tuple(row_data.values())
 
     sql = f"INSERT INTO [{schema_name}].[{table_name}] ({col_names}) VALUES ({placeholders})"
-    result = execute_query(conn_str, sql, values)
+    result = await execute_query_async(conn_str, sql, values)
 
     if result["error"]:
         return {"success": False, "error": result["error"]}
@@ -179,7 +179,7 @@ async def delete_row(
 
     where_clause = " AND ".join(where_parts)
     sql = f"DELETE FROM [{schema_name}].[{table_name}] WHERE {where_clause}"
-    result = execute_query(conn_str, sql, tuple(params))
+    result = await execute_query_async(conn_str, sql, tuple(params))
 
     if result["error"]:
         return {"success": False, "error": result["error"]}

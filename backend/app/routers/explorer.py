@@ -6,7 +6,7 @@ from app.database import get_db
 from app.auth import require_auth
 from app.config import is_revman
 from app.models import ServerConnection
-from app.services.connection import get_connection_string, execute_query
+from app.services.connection import get_connection_string, execute_query_async
 from app.services.permissions import (
     can_access_server,
     get_user_grants,
@@ -37,7 +37,7 @@ async def list_databases(
 ):
     server = await _resolve_server(db, user, server_id)
     conn_str = await get_connection_string(db, server_id)
-    result = execute_query(
+    result = await execute_query_async(
         conn_str,
         "SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' ORDER BY name",
     )
@@ -62,7 +62,7 @@ async def list_tables(
 ):
     await _resolve_server(db, user, server_id)
     conn_str = await get_connection_string(db, server_id, database)
-    result = execute_query(
+    result = await execute_query_async(
         conn_str,
         """
         SELECT TABLE_SCHEMA, TABLE_NAME
@@ -94,7 +94,7 @@ async def schema_snapshot(
     autocomplete doesn't leak schema for tables they can't query)."""
     await _resolve_server(db, user, server_id)
     conn_str = await get_connection_string(db, server_id, database)
-    tbl_res = execute_query(
+    tbl_res = await execute_query_async(
         conn_str,
         """
         SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
@@ -105,7 +105,7 @@ async def schema_snapshot(
     )
     if tbl_res["error"]:
         return {"error": tbl_res["error"], "tables": [], "columns": []}
-    col_res = execute_query(
+    col_res = await execute_query_async(
         conn_str,
         """
         SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
@@ -150,7 +150,7 @@ async def list_views(
 ):
     await _resolve_server(db, user, server_id)
     conn_str = await get_connection_string(db, server_id, database)
-    result = execute_query(
+    result = await execute_query_async(
         conn_str,
         """
         SELECT TABLE_SCHEMA, TABLE_NAME
@@ -179,7 +179,7 @@ async def list_procedures(
     if not is_revman(user.get("email", "")):
         return {"procedures": []}
     conn_str = await get_connection_string(db, server_id, database)
-    result = execute_query(
+    result = await execute_query_async(
         conn_str,
         """
         SELECT ROUTINE_SCHEMA, ROUTINE_NAME
@@ -209,7 +209,7 @@ async def list_functions(
     if not is_revman(user.get("email", "")):
         return {"functions": []}
     conn_str = await get_connection_string(db, server_id, database)
-    result = execute_query(
+    result = await execute_query_async(
         conn_str,
         """
         SELECT ROUTINE_SCHEMA, ROUTINE_NAME
@@ -243,7 +243,7 @@ async def get_table_columns(
         if not grant_covers(grants, server_id, database, schema_name, table_name):
             raise HTTPException(status_code=403, detail="No access to this table")
     conn_str = await get_connection_string(db, server_id, database)
-    result = execute_query(
+    result = await execute_query_async(
         conn_str,
         """
         SELECT
@@ -303,7 +303,7 @@ async def get_table_indexes(
         if not grant_covers(grants, server_id, database, schema_name, table_name):
             raise HTTPException(status_code=403, detail="No access to this table")
     conn_str = await get_connection_string(db, server_id, database)
-    result = execute_query(
+    result = await execute_query_async(
         conn_str,
         """
         SELECT

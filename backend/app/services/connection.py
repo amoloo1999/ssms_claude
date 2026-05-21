@@ -1,3 +1,4 @@
+import asyncio
 import pyodbc
 import re
 import time
@@ -181,6 +182,17 @@ def execute_query(connection_string: str, sql: str, params: Optional[tuple] = No
             "execution_time_ms": round(elapsed, 2),
             "error": str(e),
         }
+
+
+async def execute_query_async(
+    connection_string: str, sql: str, params: Optional[tuple] = None
+) -> dict:
+    """Run execute_query in a worker thread so the FastAPI event loop is not
+    blocked while a long-running SQL statement is in flight. Without this, a
+    slow query stalls every other in-flight request — including unrelated tabs,
+    health checks, and the explorer panel — because pyodbc's blocking I/O ties
+    up the single asyncio loop thread."""
+    return await asyncio.to_thread(execute_query, connection_string, sql, params)
 
 
 def _serialize_value(value):

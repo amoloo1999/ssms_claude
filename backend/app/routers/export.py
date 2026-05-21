@@ -8,7 +8,7 @@ from starlette.requests import Request
 from app.database import get_db
 from app.auth import require_auth
 from app.models import ExportRequest, ServerConnection
-from app.services.connection import get_connection_string, execute_query
+from app.services.connection import get_connection_string, execute_query_async
 from app.services.permissions import can_access_server, check_query_permissions
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -33,7 +33,7 @@ async def export_data(
         raise HTTPException(status_code=403, detail=payload)
 
     conn_str = await get_connection_string(db, export_req.server_id, export_req.database)
-    result = execute_query(conn_str, export_req.sql)
+    result = await execute_query_async(conn_str, export_req.sql)
 
     if result["error"]:
         raise HTTPException(status_code=400, detail=result["error"])

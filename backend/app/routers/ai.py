@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -29,7 +30,8 @@ async def generate(
     if not server or not can_access_server(user, server):
         raise HTTPException(status_code=404, detail="Server not found")
     try:
-        result = ai_service.generate_sql(
+        result = await asyncio.to_thread(
+            ai_service.generate_sql,
             server.host,
             server.port,
             server.username,
@@ -57,8 +59,9 @@ async def find_data(
     if not server or not can_access_server(user, server):
         raise HTTPException(status_code=404, detail="Server not found")
     try:
-        result = ai_service.find_data(
-            server.host, server.port, server.username, server.password, body.prompt
+        result = await asyncio.to_thread(
+            ai_service.find_data,
+            server.host, server.port, server.username, server.password, body.prompt,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -80,7 +83,9 @@ async def fix(
         raise HTTPException(status_code=404, detail="Server not found")
     conn_str = await get_connection_string(db, body.server_id, body.database)
     try:
-        result = ai_service.fix_sql(conn_str, body.database, body.sql, body.error)
+        result = await asyncio.to_thread(
+            ai_service.fix_sql, conn_str, body.database, body.sql, body.error
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
