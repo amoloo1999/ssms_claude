@@ -125,6 +125,13 @@ class QueryRequest(BaseModel):
     server_id: int
     database: str
     sql: str
+    # Client-generated id (UUID) used to cancel this query mid-flight via the
+    # Stop button. Optional so older clients / API callers keep working.
+    query_id: Optional[str] = None
+
+
+class CancelRequest(BaseModel):
+    query_id: str
 
 
 class ResultSet(BaseModel):

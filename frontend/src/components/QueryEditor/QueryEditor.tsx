@@ -2,10 +2,10 @@ import { useState, useRef, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 import Split from 'react-split';
 import { AppContext } from '../../App';
-import { executeQuery, exportData, getSchemaSnapshot, requestAccess } from '../../services/api';
+import { executeQuery, cancelQuery, exportData, getSchemaSnapshot, requestAccess } from '../../services/api';
 import ResultsGrid from '../ResultsGrid/ResultsGrid';
 import { QueryResult, MissingTable } from '../../types';
-import { VscPlay, VscExport, VscSparkle, VscAdd, VscClose } from 'react-icons/vsc';
+import { VscPlay, VscDebugStop, VscExport, VscSparkle, VscAdd, VscClose } from 'react-icons/vsc';
 import AIAssistant from '../AIAssistant/AIAssistant';
 import './QueryEditor.css';
 
@@ -142,6 +142,10 @@ function QueryEditor({ ctx }: Props) {
   const databaseListRef = useRef<string[]>([]);
   const selectedServerRef = useRef<number | undefined>(undefined);
   const selectedDbRef = useRef<string>('');
+  // Per-execution handles for the Stop button: the AbortController cancels the
+  // HTTP request, the query_id lets the server abort the in-flight SQL.
+  const abortRef = useRef<AbortController | null>(null);
+  const queryIdRef = useRef<string | null>(null);
 
   // Initialise activeTabId after first render so the seed tab id is stable.
   useEffect(() => {
@@ -293,15 +297,53 @@ function QueryEditor({ ctx }: Props) {
     return activeTab?.sql || '';
   };
 
+  // Unique id per execution so the Stop button can cancel the right query.
+  // crypto.randomUUID is undefined in a non-secure context (this app is served
+  // over plain HTTP), so fall back to a timestamp+random id.
+  const newQueryId = (): string => {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    } catch {
+      /* not available over http — fall through */
+    }
+    return `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  };
+
   const handleExecute = async () => {
     if (!selectedServer || !selectedDb || !activeTab) return;
+    if (running) return; // already running — Stop is shown instead
+    const queryId = newQueryId();
+    const controller = new AbortController();
+    queryIdRef.current = queryId;
+    abortRef.current = controller;
     setRunning(true);
     const targetId = activeTab.id;
     try {
       const queryToRun = getActiveSQL();
-      const res = await executeQuery(selectedServer, selectedDb, queryToRun);
+      const res = await executeQuery(
+        selectedServer,
+        selectedDb,
+        queryToRun,
+        queryId,
+        controller.signal,
+      );
       updateTab(targetId, { result: res, activeResultTab: 0, missingTables: undefined });
     } catch (err: any) {
+      // User hit Stop: axios surfaces an aborted request as ERR_CANCELED /
+      // CanceledError. The server-side SQL abort was already fired by handleStop.
+      if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') {
+        updateTab(targetId, {
+          result: {
+            columns: [],
+            rows: [],
+            row_count: 0,
+            execution_time_ms: 0,
+            error: 'Query cancelled.',
+          },
+          missingTables: undefined,
+        });
+        return;
+      }
       // Permissions errors come back as `detail = {detail, missing_tables}`.
       const raw = err.response?.data?.detail;
       let message: string;
@@ -324,7 +366,24 @@ function QueryEditor({ ctx }: Props) {
       });
     } finally {
       setRunning(false);
+      abortRef.current = null;
+      queryIdRef.current = null;
     }
+  };
+
+  // Stop the running query: tell the server to abort the SQL first (the worker
+  // thread keeps running the statement until SQL Server gets the attention
+  // signal), then abort the HTTP request so the awaiting promise rejects.
+  const handleStop = async () => {
+    const qid = queryIdRef.current;
+    if (qid) {
+      try {
+        await cancelQuery(qid);
+      } catch {
+        /* best-effort — abort the request regardless */
+      }
+    }
+    abortRef.current?.abort();
   };
 
   const handleExecuteRef = useRef(handleExecute);
@@ -722,13 +781,19 @@ function QueryEditor({ ctx }: Props) {
               ))}
             </select>
 
-            <button
-              className="execute-btn"
-              onClick={handleExecute}
-              disabled={running || !selectedServer || !selectedDb}
-            >
-              <VscPlay /> {running ? 'Running...' : 'Execute'}
-            </button>
+            {running ? (
+              <button className="stop-btn" onClick={handleStop}>
+                <VscDebugStop /> Stop
+              </button>
+            ) : (
+              <button
+                className="execute-btn"
+                onClick={handleExecute}
+                disabled={!selectedServer || !selectedDb}
+              >
+                <VscPlay /> Execute
+              </button>
+            )}
           </div>
 
           <div className="toolbar-right">

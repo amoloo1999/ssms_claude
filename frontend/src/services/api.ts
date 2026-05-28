@@ -54,8 +54,24 @@ export const getTableIndexes = (serverId: number, database: string, schema: stri
 
 // ── Query ──
 
-export const executeQuery = (serverId: number, database: string, sql: string) =>
-  api.post('/api/query/execute', { server_id: serverId, database, sql }).then((r) => r.data);
+export const executeQuery = (
+  serverId: number,
+  database: string,
+  sql: string,
+  queryId?: string,
+  signal?: AbortSignal,
+) =>
+  api
+    .post(
+      '/api/query/execute',
+      { server_id: serverId, database, sql, query_id: queryId },
+      { signal },
+    )
+    .then((r) => r.data);
+
+// Ask the server to abort an in-flight query by its client-generated id.
+export const cancelQuery = (queryId: string) =>
+  api.post('/api/query/cancel', { query_id: queryId }).then((r) => r.data);
 
 // ── AI ──
 

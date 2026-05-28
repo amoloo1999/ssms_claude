@@ -87,6 +87,23 @@
   cursor: default;
 }
 
+.stop-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  background: #c0392b;
+  border: none;
+  color: white;
+  border-radius: 3px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.stop-btn:hover {
+  background: #a5322a;
+}
+
 .export-btn {
   display: flex;
   align-items: center;
