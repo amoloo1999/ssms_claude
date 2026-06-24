@@ -1,6 +1,12 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pyodbc==5.1.0
+# Multi-provider database drivers (see app/services/drivers/).
+# psycopg ships binary wheels (no libpq build needed on the Windows host);
+# PyMySQL is pure-Python; the Snowflake connector is heavy and imported lazily.
+psycopg[binary]==3.2.3
+PyMySQL==1.1.1
+snowflake-connector-python==3.12.3
 pydantic==2.9.2
 pydantic-settings==2.5.2
 sqlalchemy==2.0.35

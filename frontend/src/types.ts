@@ -1,3 +1,5 @@
+export type Dialect = 'mssql' | 'postgres' | 'mysql' | 'snowflake';
+
 export interface Server {
   id: number;
   name: string;
@@ -7,6 +9,8 @@ export interface Server {
   description: string;
   from_config: boolean;
   kind: 'main' | 'gp';
+  dialect: Dialect;
+  database: string | null;
   created_at: string;
   updated_at: string | null;
 }

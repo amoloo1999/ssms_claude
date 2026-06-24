@@ -94,15 +94,24 @@ def has_server_wide_grant(
 _FORBIDDEN_RE = re.compile(
     r"\b("
     r"INSERT|UPDATE|DELETE|MERGE|DROP|CREATE|ALTER|TRUNCATE|"
-    r"EXEC|EXECUTE|GRANT|REVOKE|DENY|BACKUP|RESTORE|"
+    # EXEC/CALL: SQL Server EXEC + the Postgres/MySQL/Snowflake CALL equivalent.
+    r"EXEC|EXECUTE|CALL|GRANT|REVOKE|DENY|BACKUP|RESTORE|"
     r"BULK\s+INSERT|"
+    # Engine-specific writers: COPY (Postgres), LOAD DATA/XML and REPLACE INTO
+    # (MySQL). REPLACE/LOAD are only forbidden in their write forms so the
+    # common REPLACE() string function and identifiers stay allowed.
+    r"COPY|LOAD\s+DATA|LOAD\s+XML|REPLACE\s+INTO|"
     # SELECT ... INTO new_table — creates a new table.
     r"SELECT\b[\s\S]*?\bINTO\b"
     r")\b",
     re.IGNORECASE,
 )
 
-_IDENT = r"(?:\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$#@]*)"
+# Identifier forms across engines: [bracketed] (T-SQL), "double" (Postgres/
+# Snowflake/ANSI), `backtick` (MySQL), or a bare word.
+_IDENT = r'(?:\[[^\]]+\]|"[^"]+"|`[^`]+`|[A-Za-z_][A-Za-z0-9_$#@]*)'
+# Characters stripped to get the raw name out of any of the quoted forms.
+_QUOTES = "[]\"`"
 _FROM_RE = re.compile(
     rf"\b(?:FROM|JOIN)\s+((?:{_IDENT}\.){{0,2}}{_IDENT})", re.IGNORECASE
 )
@@ -129,26 +138,28 @@ def is_select_only(sql: str) -> tuple[bool, str | None]:
 
 
 def extract_referenced_tables(
-    sql: str, default_database: str
+    sql: str, default_database: str, default_schema: str = "dbo"
 ) -> list[tuple[str, str, str]]:
     """Return a list of (database, schema, table) tuples referenced via FROM/JOIN.
 
     Uses the active database as the default when the reference is unqualified
     or only schema-qualified. CTE names are stripped so they're not treated
-    as physical tables. Schema defaults to 'dbo' when unspecified.
+    as physical tables. ``default_schema`` is the engine's default (``dbo`` for
+    SQL Server, ``public`` for Postgres, the database name for MySQL) — used
+    when a reference is unqualified.
     """
     cleaned = _strip_strings_and_comments(sql or "")
-    ctes = {m.group(1).strip("[]").lower() for m in _CTE_RE.finditer(cleaned)}
+    ctes = {m.group(1).strip(_QUOTES).lower() for m in _CTE_RE.finditer(cleaned)}
 
     refs: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str, str]] = set()
     for m in _FROM_RE.finditer(cleaned):
         full = m.group(1)
-        parts = [p.strip().strip("[]") for p in full.split(".")]
+        parts = [p.strip().strip(_QUOTES) for p in full.split(".")]
         if not parts or not parts[-1]:
             continue
         if len(parts) == 1:
-            db, sch, tbl = default_database, "dbo", parts[0]
+            db, sch, tbl = default_database, default_schema, parts[0]
         elif len(parts) == 2:
             db, sch, tbl = default_database, parts[0], parts[1]
         elif len(parts) == 3:
@@ -171,6 +182,7 @@ async def check_query_permissions(
     server_id: int,
     database: str,
     sql: str,
+    default_schema: str = "dbo",
 ) -> tuple[bool, dict]:
     """For non-RevMan users, validate a SQL string.
 
@@ -187,7 +199,7 @@ async def check_query_permissions(
         return False, {"detail": reason or "Write operations are not allowed for view-only users.", "missing_tables": []}
 
     grants = await get_user_grants(db, user["email"])
-    refs = extract_referenced_tables(sql, database)
+    refs = extract_referenced_tables(sql, database, default_schema)
     missing: list[dict] = []
     for ref_db, sch, tbl in refs:
         if not grant_covers(grants, server_id, ref_db, sch, tbl):

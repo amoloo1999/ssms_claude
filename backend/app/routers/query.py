@@ -7,6 +7,7 @@ from app.auth import require_auth
 import asyncio
 from app.models import QueryRequest, QueryResult, CancelRequest, ServerConnection
 from app.services.connection import get_connection_string, execute_query_async, cancel_query
+from app.services.drivers import get_driver
 from app.services.permissions import can_access_server, check_query_permissions
 
 router = APIRouter(prefix="/api/query", tags=["query"])
@@ -26,7 +27,8 @@ async def execute_sql(
         raise HTTPException(status_code=404, detail="Server not found")
 
     allowed, payload = await check_query_permissions(
-        db, user, query.server_id, query.database, query.sql
+        db, user, query.server_id, query.database, query.sql,
+        get_driver(server.dialect).default_schema_for(server.database),
     )
     if not allowed:
         raise HTTPException(status_code=403, detail=payload)

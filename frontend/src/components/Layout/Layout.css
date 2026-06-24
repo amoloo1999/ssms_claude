@@ -124,7 +124,18 @@
 
 .gutter {
   background-color: var(--border-color);
+}
+
+/* Orientation-specific resize cursors. The blanket `col-resize` here was the
+   bug behind "the divider is vertical" — the editor/results (vertical) split's
+   gutter showed a horizontal-resize cursor. react-split adds `gutter-horizontal`
+   to left/right splits and `gutter-vertical` to top/bottom splits. */
+.gutter.gutter-horizontal {
   cursor: col-resize;
+}
+
+.gutter.gutter-vertical {
+  cursor: row-resize;
 }
 
 .gutter:hover {

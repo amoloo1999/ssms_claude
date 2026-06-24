@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.database import init_db, async_session
 from app.models import ServerConnection
+from app.services.drivers import get_driver
 from app.auth import router as auth_router
 from app.routers.servers import router as servers_router
 from app.routers.explorer import router as explorer_router
@@ -36,11 +37,14 @@ async def seed_servers_from_config():
     servers = config.get("servers") or []
     async with async_session() as db:
         for server_cfg in servers:
+            dialect = server_cfg.get("dialect", "mssql")
+            # Default port follows the engine when the config omits it.
+            port = server_cfg.get("port", get_driver(dialect).default_port)
             # Skip if already exists (by host+port)
             result = await db.execute(
                 select(ServerConnection).where(
                     ServerConnection.host == server_cfg["host"],
-                    ServerConnection.port == server_cfg.get("port", 1433),
+                    ServerConnection.port == port,
                     ServerConnection.from_config == True,
                 )
             )
@@ -51,11 +55,13 @@ async def seed_servers_from_config():
                 ServerConnection(
                     name=server_cfg["name"],
                     host=server_cfg["host"],
-                    port=server_cfg.get("port", 1433),
+                    port=port,
                     username=server_cfg["username"],
                     password=server_cfg["password"],
                     description=server_cfg.get("description", ""),
                     kind=server_cfg.get("kind", "main"),
+                    dialect=dialect,
+                    database=server_cfg.get("database"),
                     from_config=True,
                 )
             )

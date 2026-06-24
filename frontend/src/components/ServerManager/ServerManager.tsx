@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AppContext } from '../../App';
 import { createServer, updateServer, deleteServer, testConnection, getServers } from '../../services/api';
-import { Server } from '../../types';
+import { Server, Dialect } from '../../types';
 import { VscAdd, VscEdit, VscTrash, VscDebugStart, VscCheck, VscClose } from 'react-icons/vsc';
 import './ServerManager.css';
 
@@ -16,7 +16,20 @@ interface FormData {
   username: string;
   password: string;
   description: string;
+  dialect: Dialect;
+  database: string;
 }
+
+// Engine catalogue: label, default port, and whether a single database must be
+// named (single-connection engines bind to one database).
+const DIALECTS: { value: Dialect; label: string; port: number; needsDatabase: boolean; hostLabel: string }[] = [
+  { value: 'mssql', label: 'SQL Server', port: 1433, needsDatabase: false, hostLabel: 'server.example.com' },
+  { value: 'postgres', label: 'PostgreSQL / Aurora', port: 5432, needsDatabase: true, hostLabel: 'cluster.xxxx.us-west-1.rds.amazonaws.com' },
+  { value: 'mysql', label: 'MySQL / Aurora', port: 3306, needsDatabase: true, hostLabel: 'cluster.xxxx.rds.amazonaws.com' },
+  { value: 'snowflake', label: 'Snowflake', port: 443, needsDatabase: true, hostLabel: 'account-identifier' },
+];
+
+const dialectInfo = (d: Dialect) => DIALECTS.find((x) => x.value === d) || DIALECTS[0];
 
 const emptyForm: FormData = {
   name: '',
@@ -25,6 +38,8 @@ const emptyForm: FormData = {
   username: '',
   password: '',
   description: '',
+  dialect: 'mssql',
+  database: '',
 };
 
 function ServerManager({ ctx }: Props) {
@@ -55,9 +70,21 @@ function ServerManager({ ctx }: Props) {
       username: server.username,
       password: '',
       description: server.description,
+      dialect: server.dialect || 'mssql',
+      database: server.database || '',
     });
     setEditing(server.id);
     setShowForm(true);
+  };
+
+  // Switching engine resets the port to that engine's default (unless the user
+  // already typed a non-default port).
+  const handleDialectChange = (dialect: Dialect) => {
+    setForm((f) => {
+      const prevDefault = dialectInfo(f.dialect).port;
+      const port = f.port === prevDefault ? dialectInfo(dialect).port : f.port;
+      return { ...f, dialect, port };
+    });
   };
 
   const handleSave = async () => {
@@ -116,11 +143,24 @@ function ServerManager({ ctx }: Props) {
               />
             </label>
             <label>
+              Engine
+              <select
+                value={form.dialect}
+                onChange={(e) => handleDialectChange(e.target.value as Dialect)}
+              >
+                {DIALECTS.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
               Host
               <input
                 value={form.host}
                 onChange={(e) => setForm({ ...form, host: e.target.value })}
-                placeholder="server.example.com"
+                placeholder={dialectInfo(form.dialect).hostLabel}
               />
             </label>
             <label>
@@ -139,6 +179,16 @@ function ServerManager({ ctx }: Props) {
                 placeholder="sa"
               />
             </label>
+            {dialectInfo(form.dialect).needsDatabase && (
+              <label>
+                Database
+                <input
+                  value={form.database}
+                  onChange={(e) => setForm({ ...form, database: e.target.value })}
+                  placeholder="database name (required)"
+                />
+              </label>
+            )}
             <label>
               Password
               <div className="password-field">
@@ -192,8 +242,9 @@ function ServerManager({ ctx }: Props) {
                   {server.from_config && <span className="sm-badge">shared</span>}
                 </div>
                 <div className="sm-card-details">
-                  {server.host}:{server.port} &middot; {server.username}
-                  {server.description && ` &middot; ${server.description}`}
+                  {dialectInfo(server.dialect || 'mssql').label} &middot; {server.host}:{server.port}
+                  {server.database ? `/${server.database}` : ''} &middot; {server.username}
+                  {server.description && ` · ${server.description}`}
                 </div>
                 {testResult[server.id] && (
                   <div className={`sm-test-result ${testResult[server.id].success ? 'success' : 'error'}`}>

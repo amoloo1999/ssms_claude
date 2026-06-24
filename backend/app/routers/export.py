@@ -9,6 +9,7 @@ from app.database import get_db
 from app.auth import require_auth
 from app.models import ExportRequest, ServerConnection
 from app.services.connection import get_connection_string, execute_query_async
+from app.services.drivers import get_driver
 from app.services.permissions import can_access_server, check_query_permissions
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -27,7 +28,8 @@ async def export_data(
     if not server or not can_access_server(user, server):
         raise HTTPException(status_code=404, detail="Server not found")
     allowed, payload = await check_query_permissions(
-        db, user, export_req.server_id, export_req.database, export_req.sql
+        db, user, export_req.server_id, export_req.database, export_req.sql,
+        get_driver(server.dialect).default_schema_for(server.database),
     )
     if not allowed:
         raise HTTPException(status_code=403, detail=payload)

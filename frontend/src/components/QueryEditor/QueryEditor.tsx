@@ -4,8 +4,8 @@ import Split from 'react-split';
 import { AppContext } from '../../App';
 import { executeQuery, cancelQuery, exportData, getSchemaSnapshot, requestAccess } from '../../services/api';
 import ResultsGrid from '../ResultsGrid/ResultsGrid';
-import { QueryResult, MissingTable } from '../../types';
-import { VscPlay, VscDebugStop, VscExport, VscSparkle, VscAdd, VscClose } from 'react-icons/vsc';
+import { QueryResult, MissingTable, Dialect } from '../../types';
+import { VscPlay, VscDebugStop, VscExport, VscSparkle, VscAdd, VscClose, VscCopy } from 'react-icons/vsc';
 import AIAssistant from '../AIAssistant/AIAssistant';
 import './QueryEditor.css';
 
@@ -37,7 +37,21 @@ const RESERVED = new Set([
 const RESERVED_ALT = [...RESERVED].join('|');
 const needsBrackets = (name: string) =>
   /[^A-Za-z0-9_$#@]/.test(name) || /^[0-9]/.test(name) || RESERVED.has(name.toLowerCase());
-const quoteIdent = (name: string) => (needsBrackets(name) ? `[${name}]` : name);
+
+// Per-engine identifier quote characters so inserted completions are valid for
+// the selected server (e.g. "col" on Postgres, `col` on MySQL, [col] on MSSQL).
+const QUOTES: Record<Dialect, [string, string]> = {
+  mssql: ['[', ']'],
+  postgres: ['"', '"'],
+  mysql: ['`', '`'],
+  snowflake: ['"', '"'],
+};
+const quoteIdent = (name: string, dialect: Dialect = 'mssql') => {
+  if (!needsBrackets(name)) return name;
+  const [open, close] = QUOTES[dialect] || QUOTES.mssql;
+  // Escape the closing char by doubling it (]] for T-SQL, "" / `` elsewhere).
+  return `${open}${name.split(close).join(close + close)}${close}`;
+};
 
 interface AliasMap {
   aliases: Map<string, { db?: string; schema?: string; table: string }>;
@@ -142,6 +156,7 @@ function QueryEditor({ ctx }: Props) {
   const databaseListRef = useRef<string[]>([]);
   const selectedServerRef = useRef<number | undefined>(undefined);
   const selectedDbRef = useRef<string>('');
+  const selectedDialectRef = useRef<Dialect>('mssql');
   // Per-execution handles for the Stop button: the AbortController cancels the
   // HTTP request, the query_id lets the server abort the in-flight SQL.
   const abortRef = useRef<AbortController | null>(null);
@@ -156,6 +171,8 @@ function QueryEditor({ ctx }: Props) {
 
   const selectedServer = ctx.activeQuery?.serverId;
   const selectedDb = ctx.activeQuery?.database || '';
+  const selectedDialect: Dialect =
+    (ctx.servers.find((s) => s.id === selectedServer)?.dialect as Dialect) || 'mssql';
 
   // ── tab helpers ───────────────────────────────────────────────────────────
   const updateTab = (id: string, patch: Partial<EditorTab>) =>
@@ -193,6 +210,9 @@ function QueryEditor({ ctx }: Props) {
   useEffect(() => {
     selectedDbRef.current = selectedDb;
   }, [selectedDb]);
+  useEffect(() => {
+    selectedDialectRef.current = selectedDialect;
+  }, [selectedDialect]);
 
   // ── server / database default selection ──────────────────────────────────
   const loadDatabases = async (serverId: number): Promise<string[]> => {
@@ -401,6 +421,31 @@ function QueryEditor({ ctx }: Props) {
     }
   };
 
+  // Copy the active result set to the clipboard as TSV (headers + rows) so it
+  // pastes cleanly into Excel/Sheets. The app is served over plain HTTP, where
+  // navigator.clipboard is unavailable, so fall back to a hidden textarea.
+  const handleCopyResults = async (set?: { columns: string[]; rows: any[][] }) => {
+    if (!set || !set.rows.length) return;
+    const esc = (v: any) => (v == null ? '' : String(v).replace(/\t/g, ' ').replace(/\r?\n/g, ' '));
+    const tsv = [set.columns.join('\t'), ...set.rows.map((r) => r.map(esc).join('\t'))].join('\n');
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(tsv);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = tsv;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+    } catch {
+      alert('Copy failed');
+    }
+  };
+
   // ── editor mount: Ctrl+Enter binding + completion provider registration ──
   const handleEditorMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
@@ -489,13 +534,7 @@ function QueryEditor({ ctx }: Props) {
 
           const suggestions: any[] = [];
           const seen = new Set<string>();
-          const insertOf = (name: string) => {
-            const q = quoteIdent(name);
-            // If we consumed a leading `[`, drop it from the inserted text
-            // (the range covers it) — quoteIdent will re-add brackets if
-            // needed.
-            return triggeredByBracket && q.startsWith('[') ? q : q;
-          };
+          const insertOf = (name: string) => quoteIdent(name, selectedDialectRef.current);
           const push = (s: any) => {
             const key = `${s.kind}:${s.label}`;
             if (seen.has(key)) return;
@@ -810,6 +849,14 @@ function QueryEditor({ ctx }: Props) {
               disabled={!result?.rows.length}
             >
               <VscExport /> Excel
+            </button>
+            <button
+              className="export-btn"
+              onClick={() => handleCopyResults(activeSet)}
+              disabled={!activeSet?.rows.length}
+              title="Copy results to clipboard (TSV)"
+            >
+              <VscCopy /> Copy
             </button>
             <button
               className="export-btn"

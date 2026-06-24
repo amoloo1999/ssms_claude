@@ -9,8 +9,9 @@ from app.models import (
     ServerConnectionUpdate,
     ServerConnectionResponse,
 )
+import asyncio
 from app.auth import require_auth, require_revman
-from app.services.connection import build_connection_string, get_sql_connection
+from app.services.drivers import get_driver
 from app.services.permissions import can_access_server
 
 router = APIRouter(prefix="/api/servers", tags=["servers"])
@@ -136,14 +137,27 @@ async def test_connection(
     if not server or not can_access_server(user, server):
         raise HTTPException(status_code=404, detail="Server not found")
 
+    driver = get_driver(server.dialect)
+    conn_db = server.database if driver.single_database else None
+    conn_str = driver.build_connection_string(
+        server.host, server.port, server.username, server.password, conn_db
+    )
+
+    def _probe() -> None:
+        # A standalone connection (not pooled) — the test must reflect the real
+        # credentials/reachability, not a recycled handle. Runs off the event
+        # loop so a slow/unreachable host doesn't stall other requests.
+        conn = driver.connect(conn_str)
+        try:
+            driver.probe(conn)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     try:
-        conn_str = build_connection_string(
-            server.host, server.port, server.username, server.password
-        )
-        with get_sql_connection(conn_str) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
+        await asyncio.to_thread(_probe)
         return {"success": True, "message": "Connection successful"}
     except Exception as e:
         return {"success": False, "message": str(e)}

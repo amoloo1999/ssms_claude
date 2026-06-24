@@ -39,6 +39,8 @@ async def generate(
             body.database,
             body.prompt,
             body.current_sql,
+            server.dialect,
+            server.database,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -62,6 +64,7 @@ async def find_data(
         result = await asyncio.to_thread(
             ai_service.find_data,
             server.host, server.port, server.username, server.password, body.prompt,
+            server.dialect, server.database,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))

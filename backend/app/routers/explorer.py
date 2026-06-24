@@ -7,6 +7,7 @@ from app.auth import require_auth
 from app.config import is_revman
 from app.models import ServerConnection
 from app.services.connection import get_connection_string, execute_query_async
+from app.services.drivers import get_driver
 from app.services.permissions import (
     can_access_server,
     get_user_grants,
@@ -36,14 +37,20 @@ async def list_databases(
     user: dict = Depends(require_auth),
 ):
     server = await _resolve_server(db, user, server_id)
-    conn_str = await get_connection_string(db, server_id)
-    result = await execute_query_async(
-        conn_str,
-        "SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' ORDER BY name",
-    )
-    if result["error"]:
-        return {"error": result["error"], "databases": []}
-    dbs = [row[0] for row in result["rows"]]
+    driver = get_driver(server.dialect)
+
+    sql = driver.list_databases_sql()
+    if sql is None:
+        # Single-database engine (Postgres/MySQL/Snowflake): the only "database"
+        # is the one the server is configured to connect to.
+        dbs = [server.database] if server.database else []
+    else:
+        conn_str = await get_connection_string(db, server_id)
+        result = await execute_query_async(conn_str, sql)
+        if result["error"]:
+            return {"error": result["error"], "databases": []}
+        dbs = [row[0] for row in result["rows"]]
+
     if not is_revman(user.get("email", "")):
         # Show only databases the user has any grant in. Wildcard-aware:
         # a database-wide or server-wide grant matches via grant_covers.
@@ -60,17 +67,10 @@ async def list_tables(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    await _resolve_server(db, user, server_id)
+    server = await _resolve_server(db, user, server_id)
+    driver = get_driver(server.dialect)
     conn_str = await get_connection_string(db, server_id, database)
-    result = await execute_query_async(
-        conn_str,
-        """
-        SELECT TABLE_SCHEMA, TABLE_NAME
-        FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_TYPE = 'BASE TABLE'
-        ORDER BY TABLE_SCHEMA, TABLE_NAME
-        """,
-    )
+    result = await execute_query_async(conn_str, driver.list_tables_sql())
     if result["error"]:
         return {"error": result["error"], "tables": []}
     tables = [{"schema": row[0], "name": row[1]} for row in result["rows"]]
@@ -92,27 +92,13 @@ async def schema_snapshot(
 
     For RevMan: full snapshot. For non-RevMan: only their granted tables (so
     autocomplete doesn't leak schema for tables they can't query)."""
-    await _resolve_server(db, user, server_id)
+    server = await _resolve_server(db, user, server_id)
+    driver = get_driver(server.dialect)
     conn_str = await get_connection_string(db, server_id, database)
-    tbl_res = await execute_query_async(
-        conn_str,
-        """
-        SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
-        FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW')
-        ORDER BY TABLE_SCHEMA, TABLE_NAME
-        """,
-    )
+    tbl_res = await execute_query_async(conn_str, driver.schema_snapshot_tables_sql())
     if tbl_res["error"]:
         return {"error": tbl_res["error"], "tables": [], "columns": []}
-    col_res = await execute_query_async(
-        conn_str,
-        """
-        SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
-        FROM INFORMATION_SCHEMA.COLUMNS
-        ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
-        """,
-    )
+    col_res = await execute_query_async(conn_str, driver.schema_snapshot_columns_sql())
 
     raw_tables = [
         {
@@ -148,16 +134,10 @@ async def list_views(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    await _resolve_server(db, user, server_id)
+    server = await _resolve_server(db, user, server_id)
+    driver = get_driver(server.dialect)
     conn_str = await get_connection_string(db, server_id, database)
-    result = await execute_query_async(
-        conn_str,
-        """
-        SELECT TABLE_SCHEMA, TABLE_NAME
-        FROM INFORMATION_SCHEMA.VIEWS
-        ORDER BY TABLE_SCHEMA, TABLE_NAME
-        """,
-    )
+    result = await execute_query_async(conn_str, driver.list_views_sql())
     if result["error"]:
         return {"error": result["error"], "views": []}
     views = [{"schema": row[0], "name": row[1]} for row in result["rows"]]
@@ -174,20 +154,16 @@ async def list_procedures(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    await _resolve_server(db, user, server_id)
+    server = await _resolve_server(db, user, server_id)
     # Non-RevMan can't EXEC anyway — hide procs entirely.
     if not is_revman(user.get("email", "")):
         return {"procedures": []}
+    driver = get_driver(server.dialect)
+    sql = driver.list_procedures_sql()
+    if sql is None:
+        return {"procedures": []}
     conn_str = await get_connection_string(db, server_id, database)
-    result = await execute_query_async(
-        conn_str,
-        """
-        SELECT ROUTINE_SCHEMA, ROUTINE_NAME
-        FROM INFORMATION_SCHEMA.ROUTINES
-        WHERE ROUTINE_TYPE = 'PROCEDURE'
-        ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME
-        """,
-    )
+    result = await execute_query_async(conn_str, sql)
     if result["error"]:
         return {"error": result["error"], "procedures": []}
     return {
@@ -205,19 +181,15 @@ async def list_functions(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    await _resolve_server(db, user, server_id)
+    server = await _resolve_server(db, user, server_id)
     if not is_revman(user.get("email", "")):
         return {"functions": []}
+    driver = get_driver(server.dialect)
+    sql = driver.list_functions_sql()
+    if sql is None:
+        return {"functions": []}
     conn_str = await get_connection_string(db, server_id, database)
-    result = await execute_query_async(
-        conn_str,
-        """
-        SELECT ROUTINE_SCHEMA, ROUTINE_NAME
-        FROM INFORMATION_SCHEMA.ROUTINES
-        WHERE ROUTINE_TYPE = 'FUNCTION'
-        ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME
-        """,
-    )
+    result = await execute_query_async(conn_str, sql)
     if result["error"]:
         return {"error": result["error"], "functions": []}
     return {
@@ -237,38 +209,15 @@ async def get_table_columns(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    await _resolve_server(db, user, server_id)
+    server = await _resolve_server(db, user, server_id)
     if not is_revman(user.get("email", "")):
         grants = await get_user_grants(db, user["email"])
         if not grant_covers(grants, server_id, database, schema_name, table_name):
             raise HTTPException(status_code=403, detail="No access to this table")
+    driver = get_driver(server.dialect)
     conn_str = await get_connection_string(db, server_id, database)
-    result = await execute_query_async(
-        conn_str,
-        """
-        SELECT
-            c.COLUMN_NAME,
-            c.DATA_TYPE,
-            c.CHARACTER_MAXIMUM_LENGTH,
-            c.IS_NULLABLE,
-            c.COLUMN_DEFAULT,
-            CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IS_PRIMARY_KEY,
-            c.ORDINAL_POSITION
-        FROM INFORMATION_SCHEMA.COLUMNS c
-        LEFT JOIN (
-            SELECT ku.COLUMN_NAME
-            FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-            JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
-                ON tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
-            WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
-                AND tc.TABLE_SCHEMA = ?
-                AND tc.TABLE_NAME = ?
-        ) pk ON c.COLUMN_NAME = pk.COLUMN_NAME
-        WHERE c.TABLE_SCHEMA = ? AND c.TABLE_NAME = ?
-        ORDER BY c.ORDINAL_POSITION
-        """,
-        (schema_name, table_name, schema_name, table_name),
-    )
+    sql, params = driver.columns_sql(schema_name, table_name)
+    result = await execute_query_async(conn_str, sql, params)
     if result["error"]:
         return {"error": result["error"], "columns": []}
     return {
@@ -297,32 +246,19 @@ async def get_table_indexes(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(require_auth),
 ):
-    await _resolve_server(db, user, server_id)
+    server = await _resolve_server(db, user, server_id)
     if not is_revman(user.get("email", "")):
         grants = await get_user_grants(db, user["email"])
         if not grant_covers(grants, server_id, database, schema_name, table_name):
             raise HTTPException(status_code=403, detail="No access to this table")
+    driver = get_driver(server.dialect)
+    spec = driver.indexes_sql(schema_name, table_name)
+    if spec is None:
+        # Engine without queryable indexes (e.g. Snowflake).
+        return {"indexes": []}
     conn_str = await get_connection_string(db, server_id, database)
-    result = await execute_query_async(
-        conn_str,
-        """
-        SELECT
-            i.name AS index_name,
-            i.type_desc,
-            i.is_unique,
-            i.is_primary_key,
-            STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal) AS columns
-        FROM sys.indexes i
-        JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
-        JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
-        JOIN sys.tables t ON i.object_id = t.object_id
-        JOIN sys.schemas s ON t.schema_id = s.schema_id
-        WHERE s.name = ? AND t.name = ?
-        GROUP BY i.name, i.type_desc, i.is_unique, i.is_primary_key
-        ORDER BY i.name
-        """,
-        (schema_name, table_name),
-    )
+    sql, params = spec
+    result = await execute_query_async(conn_str, sql, params)
     if result["error"]:
         return {"error": result["error"], "indexes": []}
     return {

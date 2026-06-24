@@ -25,6 +25,10 @@ async def init_db():
         for migration in [
             "ALTER TABLE server_connections ADD COLUMN owner_email VARCHAR",
             "ALTER TABLE server_connections ADD COLUMN kind VARCHAR DEFAULT 'main'",
+            # Multi-provider support: existing rows back-fill to 'mssql', so the
+            # SQL Server behavior is unchanged for everything already seeded.
+            "ALTER TABLE server_connections ADD COLUMN dialect VARCHAR DEFAULT 'mssql'",
+            "ALTER TABLE server_connections ADD COLUMN database VARCHAR",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_server_host_port_config ON server_connections(host, port) WHERE from_config = 1",
         ]:
             try:

@@ -25,6 +25,14 @@ class ServerConnection(Base):
     # 'main' = available to all authenticated users (view-only for non-RevMan).
     # 'gp'   = hidden from non-RevMan users entirely.
     kind = Column(String, default="main", nullable=False)
+    # Database engine: 'mssql' (default, back-compat), 'postgres', 'mysql',
+    # 'snowflake'. Drives which driver in app.services.drivers handles this
+    # server's connections + introspection.
+    dialect = Column(String, default="mssql", nullable=False)
+    # The single database a connection binds to for engines that connect to one
+    # database at a time (Postgres / MySQL / Snowflake). Ignored for MSSQL,
+    # which switches databases per query via the connection string.
+    database = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -84,6 +92,9 @@ class User(Base):
 # -- Pydantic schemas --
 
 
+Dialect = Literal["mssql", "postgres", "mysql", "snowflake"]
+
+
 class ServerConnectionCreate(BaseModel):
     name: str
     host: str
@@ -92,6 +103,10 @@ class ServerConnectionCreate(BaseModel):
     password: str
     description: str = ""
     kind: Literal["main", "gp"] = "main"
+    dialect: Dialect = "mssql"
+    # Required for single-database engines (postgres/mysql/snowflake); ignored
+    # for mssql.
+    database: Optional[str] = None
 
 
 class ServerConnectionUpdate(BaseModel):
@@ -102,6 +117,8 @@ class ServerConnectionUpdate(BaseModel):
     password: Optional[str] = None
     description: Optional[str] = None
     kind: Optional[Literal["main", "gp"]] = None
+    dialect: Optional[Dialect] = None
+    database: Optional[str] = None
 
 
 class ServerConnectionResponse(BaseModel):
@@ -114,6 +131,8 @@ class ServerConnectionResponse(BaseModel):
     from_config: bool
     owner_email: Optional[str] = None
     kind: str = "main"
+    dialect: str = "mssql"
+    database: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
