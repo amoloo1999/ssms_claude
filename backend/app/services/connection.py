@@ -113,7 +113,26 @@ def _get_pooled_connection(handle: ConnHandle):
 
 
 def _return_to_pool(handle: ConnHandle, conn):
-    """Return a connection to the pool for reuse."""
+    """Return a connection to the pool for reuse.
+
+    Reset transaction state before pooling. A connection can come back with an
+    open transaction — the liveness ``probe()``'s ``SELECT 1`` or an
+    introspection/schema read on an autocommit-off driver (SQL Server) opens a
+    transaction that only ``execute_query`` commits. Left unreset, that idle
+    pooled connection holds the transaction open for hours, pinning locks and,
+    under RCSI, the tempdb version store. ``rollback()`` is a no-op for work
+    ``execute_query`` already committed and clears any leftover read
+    transaction; if it can't reset, we discard rather than pool a connection in
+    an unknown state.
+    """
+    try:
+        conn.rollback()
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return
     key = _pool_key(handle)
     with _pool_lock:
         pool = _pools.setdefault(key, [])
