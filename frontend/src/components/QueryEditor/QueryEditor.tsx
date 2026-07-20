@@ -7,6 +7,7 @@ import ResultsGrid from '../ResultsGrid/ResultsGrid';
 import { QueryResult, MissingTable, Dialect } from '../../types';
 import { VscPlay, VscDebugStop, VscExport, VscSparkle, VscAdd, VscClose, VscCopy } from 'react-icons/vsc';
 import AIAssistant from '../AIAssistant/AIAssistant';
+import { quoteIdent as quoteIdentAlways } from '../../utils/sqlDialect';
 import './QueryEditor.css';
 
 interface Props {
@@ -38,20 +39,10 @@ const RESERVED_ALT = [...RESERVED].join('|');
 const needsBrackets = (name: string) =>
   /[^A-Za-z0-9_$#@]/.test(name) || /^[0-9]/.test(name) || RESERVED.has(name.toLowerCase());
 
-// Per-engine identifier quote characters so inserted completions are valid for
-// the selected server (e.g. "col" on Postgres, `col` on MySQL, [col] on MSSQL).
-const QUOTES: Record<Dialect, [string, string]> = {
-  mssql: ['[', ']'],
-  postgres: ['"', '"'],
-  mysql: ['`', '`'],
-  snowflake: ['"', '"'],
-};
-const quoteIdent = (name: string, dialect: Dialect = 'mssql') => {
-  if (!needsBrackets(name)) return name;
-  const [open, close] = QUOTES[dialect] || QUOTES.mssql;
-  // Escape the closing char by doubling it (]] for T-SQL, "" / `` elsewhere).
-  return `${open}${name.split(close).join(close + close)}${close}`;
-};
+// Quote only when the identifier needs it; the per-engine quote chars live in
+// utils/sqlDialect so the editor and the explorer can't drift apart.
+const quoteIdent = (name: string, dialect: Dialect = 'mssql') =>
+  needsBrackets(name) ? quoteIdentAlways(name, dialect) : name;
 
 interface AliasMap {
   aliases: Map<string, { db?: string; schema?: string; table: string }>;

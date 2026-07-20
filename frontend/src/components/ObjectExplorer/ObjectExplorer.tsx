@@ -1,7 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { AppContext } from '../../App';
 import { getDatabases, getTables, getViews, getProcedures, getFunctions, getTableColumns, getTableIndexes, executeQuery } from '../../services/api';
-import { Server, TreeNode, ColumnInfo, IndexInfo } from '../../types';
+import { Server, TreeNode, ColumnInfo, IndexInfo, Dialect } from '../../types';
+import {
+  selectTopSql,
+  selectTopLabel,
+  selectColumnsSql,
+  countRowsSql,
+  columnMetadataSql,
+  distinctCountsSql,
+  insertTemplateSql,
+  updateTemplateSql,
+  quoteQualified,
+  quoteIdent,
+} from '../../utils/sqlDialect';
 import { VscDatabase, VscServer, VscTable, VscSymbolMethod, VscSymbolMisc, VscFolder, VscEye, VscSymbolField } from 'react-icons/vsc';
 import './ObjectExplorer.css';
 
@@ -228,14 +240,41 @@ function ObjectExplorer({ ctx }: Props) {
     setContextMenu({ x: e.clientX, y: e.clientY, node });
   };
 
-  const handleSelectTop1000 = (node: TreeNode) => {
-    const { serverId, database, schema, name } = node.data;
-    const sql = `SELECT TOP 1000 * FROM [${schema}].[${name}]`;
+  // The server's engine decides how a row cap is written (TOP vs LIMIT).
+  const dialectFor = (serverId: number): Dialect =>
+    (ctx.servers.find((s) => s.id === serverId)?.dialect as Dialect) || 'mssql';
+
+  // Drop a generated query into a new editor tab.
+  const openInEditor = (node: TreeNode, sql: string) => {
+    const { serverId, database } = node.data;
     ctx.setActiveQuery({ serverId, database });
     ctx.setPendingQuery({ serverId, database, sql });
     ctx.setActiveTab('query');
     setContextMenu(null);
   };
+
+  // Templates that name every column need the column list first.
+  const openWithColumns = async (
+    node: TreeNode,
+    build: (dialect: Dialect, schema: string, name: string, columns: string[]) => string
+  ) => {
+    const { serverId, database, schema, name } = node.data;
+    setContextMenu(null);
+    try {
+      const res = await getTableColumns(serverId, database, schema, name);
+      const columns = (res.columns || []).map((c: ColumnInfo) => c.name);
+      openInEditor(node, build(dialectFor(serverId), schema, name, columns));
+    } catch (err: any) {
+      alert('Could not load columns: ' + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const scriptSimple = (node: TreeNode, build: (d: Dialect, s: string, n: string) => string) => {
+    const { serverId, schema, name } = node.data;
+    openInEditor(node, build(dialectFor(serverId), schema, name));
+  };
+
+  const handleSelectTop1000 = (node: TreeNode) => scriptSimple(node, selectTopSql);
 
   const handleRenameTable = (node: TreeNode) => {
     setRenameNode(node);
@@ -250,8 +289,13 @@ function ObjectExplorer({ ctx }: Props) {
     }
 
     const { serverId, database, schema, name } = renameNode.data;
+    const dialect = dialectFor(serverId);
+    const rename =
+      dialect === 'mssql'
+        ? `EXEC sp_rename '${schema}.${name}', '${renameValue}'`
+        : `ALTER TABLE ${quoteQualified(dialect, schema, name)} RENAME TO ${quoteIdent(renameValue, dialect)}`;
     try {
-      await executeQuery(serverId, database, `EXEC sp_rename '${schema}.${name}', '${renameValue}'`);
+      await executeQuery(serverId, database, rename);
       // Refresh the parent tables folder
       const parentId = `tables-${serverId}-${database}`;
       await refreshNode(parentId);
@@ -263,14 +307,15 @@ function ObjectExplorer({ ctx }: Props) {
 
   const handleDeleteTable = async (node: TreeNode) => {
     const { serverId, database, schema, name } = node.data;
+    const target = quoteQualified(dialectFor(serverId), schema, name);
     setContextMenu(null);
 
-    if (!confirm(`Are you sure you want to delete [${schema}].[${name}]? This cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete ${target}? This cannot be undone.`)) {
       return;
     }
 
     try {
-      await executeQuery(serverId, database, `DROP TABLE [${schema}].[${name}]`);
+      await executeQuery(serverId, database, `DROP TABLE ${target}`);
       const parentId = `tables-${serverId}-${database}`;
       await refreshNode(parentId);
     } catch (err: any) {
@@ -295,7 +340,7 @@ function ObjectExplorer({ ctx }: Props) {
         getTableIndexes(serverId, database, schema, name),
       ]);
       setProperties({
-        tableName: `[${schema}].[${name}]`,
+        tableName: quoteQualified(dialectFor(serverId), schema, name),
         schema,
         database,
         columns: colRes.columns || [],
@@ -314,7 +359,7 @@ function ObjectExplorer({ ctx }: Props) {
       const colRes = await getTableColumns(serverId, database, schema, name);
       setSchemaModal({
         columns: colRes.columns || [],
-        tableName: `[${schema}].[${name}]`,
+        tableName: quoteQualified(dialectFor(serverId), schema, name),
       });
     } catch (err) {
       console.error('Failed to load schema:', err);
@@ -410,10 +455,51 @@ function ObjectExplorer({ ctx }: Props) {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="context-menu-item" onClick={() => handleSelectTop1000(contextMenu.node)}>
-            Select Top 1000 Rows
+            {selectTopLabel(dialectFor(contextMenu.node.data.serverId))}
+          </div>
+          <div
+            className="context-menu-item"
+            onClick={() => openWithColumns(contextMenu.node, selectColumnsSql)}
+          >
+            Select with Column List
+          </div>
+          <div
+            className="context-menu-item"
+            onClick={() => scriptSimple(contextMenu.node, countRowsSql)}
+          >
+            Row Count
+          </div>
+          <div
+            className="context-menu-item"
+            onClick={() =>
+              openWithColumns(contextMenu.node, (d, s, n, cols) =>
+                distinctCountsSql(d, s, n, cols[0] || 'column_name')
+              )
+            }
+          >
+            Distinct Values &amp; Counts
+          </div>
+          <div
+            className="context-menu-item"
+            onClick={() => scriptSimple(contextMenu.node, columnMetadataSql)}
+          >
+            Column Metadata
           </div>
           {isRevMan && (
             <>
+              <div className="context-menu-separator" />
+              <div
+                className="context-menu-item"
+                onClick={() => openWithColumns(contextMenu.node, insertTemplateSql)}
+              >
+                Script INSERT
+              </div>
+              <div
+                className="context-menu-item"
+                onClick={() => openWithColumns(contextMenu.node, updateTemplateSql)}
+              >
+                Script UPDATE
+              </div>
               <div className="context-menu-separator" />
               <div className="context-menu-item" onClick={() => handleRenameTable(contextMenu.node)}>
                 Rename Table
