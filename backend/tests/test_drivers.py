@@ -20,7 +20,11 @@ from app.services.drivers import get_driver, supported_dialects
 
 
 def test_registry_and_aliases():
-    assert set(supported_dialects()) == {"mssql", "postgres", "mysql", "snowflake"}
+    # The four real engines must all be registered. Use subset rather than
+    # equality: other test modules (e.g. test_connection_facade) register
+    # throwaway drivers into the shared registry, and this assertion is about
+    # the real ones being present, not about nothing else existing.
+    assert {"mssql", "postgres", "mysql", "snowflake"} <= set(supported_dialects())
     assert get_driver("mssql").dialect == "mssql"
     assert get_driver(None).dialect == "mssql"  # default
     assert get_driver("postgresql").dialect == "postgres"  # alias
@@ -149,6 +153,36 @@ def test_introspection_sql_contracts():
     for d in ("mssql", "postgres", "mysql"):
         spec = get_driver(d).indexes_sql("s", "t")
         assert spec is not None and isinstance(spec[0], str)
+
+
+def test_mssql_connect_uses_autocommit():
+    """SQL Server connections MUST be opened autocommit=True.
+
+    Guards the 2026-07-07 / 2026-07-21 leak: without it, the pool's SELECT 1
+    probe and every INFORMATION_SCHEMA read open an implicit transaction that a
+    pooled idle connection then holds open for hours. Assert the driver asks
+    pyodbc for autocommit rather than relying on pyodbc's (off) default.
+    """
+    from app.services.drivers import mssql as mssql_mod
+
+    captured = {}
+
+    def fake_connect(conn_str, **kwargs):
+        captured["conn_str"] = conn_str
+        captured["kwargs"] = kwargs
+        return object()  # stand-in connection; connect() must not touch it
+
+    real_connect = mssql_mod.pyodbc.connect
+    mssql_mod.pyodbc.connect = fake_connect
+    try:
+        get_driver("mssql").connect("DRIVER=x;SERVER=y;DATABASE=z;")
+    finally:
+        mssql_mod.pyodbc.connect = real_connect
+
+    assert captured["kwargs"].get("autocommit") is True, (
+        "mssql driver must open connections with autocommit=True "
+        f"(got kwargs={captured['kwargs']})"
+    )
 
 
 def _run_all():

@@ -45,7 +45,22 @@ class MssqlDriver(DatabaseDriver):
         )
 
     def connect(self, conn_str: str):
-        return pyodbc.connect(conn_str, timeout=10)
+        # autocommit=True is REQUIRED, not a preference. With pyodbc's default
+        # (autocommit off) the SQL Server ODBC driver wraps every statement --
+        # including the pool's `SELECT 1` liveness probe and every
+        # INFORMATION_SCHEMA read -- in an implicit transaction that only an
+        # explicit COMMIT/ROLLBACK closes. A pooled connection then sits idle
+        # holding that transaction open for hours, pinning locks and the RCSI
+        # tempdb version store. That is the 2026-07-07 lock-storm mechanism, and
+        # it recurred (26 sessions idle ~22h, one per database) because the only
+        # reset was on pool RETURN (_return_to_pool) while the probe reopens a
+        # transaction on pool CHECKOUT -- the wrong end of the lifecycle.
+        # Autocommit removes the implicit transaction entirely, so there is
+        # nothing to leak regardless of checkout/return bookkeeping.
+        # execute_query still calls commit() explicitly; under autocommit that is
+        # a harmless no-op, and the app exposes no BEGIN TRAN / rollback-on-error
+        # semantics that would need autocommit off.
+        return pyodbc.connect(conn_str, timeout=10, autocommit=True)
 
     def probe(self, conn) -> None:
         # pyodbc connections expose .execute() directly (matches the original

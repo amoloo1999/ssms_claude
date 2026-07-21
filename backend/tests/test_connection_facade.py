@@ -107,6 +107,56 @@ def test_cancel_unknown_id_is_false():
     assert cancel_query("nope-not-running") is False
 
 
+def test_pooled_connection_has_no_open_transaction_after_reuse():
+    """Regression for the 2026-07-07 / 2026-07-21 idle-transaction leak.
+
+    Simulates the SQL Server condition with a driver whose connections start
+    autocommit OFF (like pyodbc's default) and whose probe issues a real read.
+    After a full checkout -> use -> return -> checkout cycle, the connection the
+    pool hands back must NOT be sitting inside an open transaction. Before the
+    fix, the checkout-time probe reopened a transaction that nothing reset,
+    leaving pooled idle connections holding a transaction open indefinitely.
+    """
+    import sqlite3 as _sqlite
+    from app.services import connection as conn_mod
+    from app.services.drivers.base import ConnHandle
+
+    class _AutocommitOffSqlite(_SqliteDriver):
+        dialect = "sqlitetxntest"
+
+        def connect(self, conn_str):
+            # isolation_level="" == DEFERRED: sqlite opens an implicit
+            # transaction on the first write, mirroring pyodbc autocommit-off.
+            c = _sqlite.connect(conn_str)
+            c.isolation_level = ""
+            return c
+
+        def probe(self, conn) -> None:
+            # A write inside the probe opens a transaction under autocommit-off,
+            # exactly like SQL Server's implicit txn on any statement.
+            conn.execute("CREATE TABLE IF NOT EXISTS _probe (x)")
+            conn.execute("INSERT INTO _probe (x) VALUES (1)")
+
+    registry._FACTORIES["sqlitetxntest"] = lambda: _AutocommitOffSqlite()
+    registry._instances.pop("sqlitetxntest", None)
+    path = os.path.join(tempfile.gettempdir(), "ssms_txn_leak_test.sqlite")
+    handle = ConnHandle("sqlitetxntest", path)
+
+    # First call opens + pools a connection. Second call checks it back out,
+    # firing the probe -> which under the buggy path leaves a transaction open.
+    execute_query(handle, "SELECT 1")
+    execute_query(handle, "SELECT 1")
+
+    # Inspect the actual pooled connection's transaction state.
+    key = conn_mod._pool_key(handle)
+    pool = conn_mod._pools.get(key, [])
+    assert pool, "expected a pooled connection to inspect"
+    conn = pool[-1]
+    assert conn.in_transaction is False, (
+        "pooled connection is sitting in an open transaction — the leak is back"
+    )
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     failures = 0
