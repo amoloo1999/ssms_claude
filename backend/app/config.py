@@ -17,6 +17,7 @@ REVMAN_EMAILS: frozenset[str] = frozenset({
 APPROVER_EMAILS: frozenset[str] = frozenset({
     "amoloo@williamwarren.com",
     "cpj@williamwarren.com",
+    "wfan@williamwarren.com",
 })
 
 # External collaborators allowed past the ALLOWED_DOMAIN check. Deliberately
