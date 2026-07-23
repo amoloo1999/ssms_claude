@@ -19,6 +19,17 @@ APPROVER_EMAILS: frozenset[str] = frozenset({
     "cpj@williamwarren.com",
 })
 
+# External collaborators allowed past the ALLOWED_DOMAIN check. Deliberately
+# per-address, not per-domain: adding "getuniti.com" to ALLOWED_DOMAIN would let
+# any employee of that company log in. Guests get role='user' like any
+# non-RevMan — view-only, `gp` servers hidden, every table hidden until an
+# approver grants it. Remove the address here when the engagement ends;
+# revoking their grants alone still leaves them able to sign in.
+GUEST_EMAILS: frozenset[str] = frozenset({
+    "george@getuniti.com",
+    "ryna@getuniti.com",
+})
+
 
 def is_revman(email: str | None) -> bool:
     return bool(email) and email.lower() in {e.lower() for e in REVMAN_EMAILS}
@@ -26,6 +37,10 @@ def is_revman(email: str | None) -> bool:
 
 def is_approver(email: str | None) -> bool:
     return bool(email) and email.lower() in {e.lower() for e in APPROVER_EMAILS}
+
+
+def is_guest(email: str | None) -> bool:
+    return bool(email) and email.lower() in {e.lower() for e in GUEST_EMAILS}
 
 
 class Settings(BaseSettings):

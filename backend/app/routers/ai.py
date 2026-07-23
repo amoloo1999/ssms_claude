@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
-from app.auth import require_auth
+from app.auth import block_guests
 from app.models import (
     AIGenerateRequest,
     AIFixRequest,
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/ai", tags=["ai"])
 async def generate(
     body: AIGenerateRequest,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(require_auth),
+    user: dict = Depends(block_guests),
 ):
     server = (
         await db.execute(select(ServerConnection).where(ServerConnection.id == body.server_id))
@@ -53,7 +53,7 @@ async def generate(
 async def find_data(
     body: AIFindDataRequest,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(require_auth),
+    user: dict = Depends(block_guests),
 ):
     server = (
         await db.execute(select(ServerConnection).where(ServerConnection.id == body.server_id))
@@ -77,7 +77,7 @@ async def find_data(
 async def fix(
     body: AIFixRequest,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(require_auth),
+    user: dict = Depends(block_guests),
 ):
     server = (
         await db.execute(select(ServerConnection).where(ServerConnection.id == body.server_id))

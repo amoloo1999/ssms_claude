@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.sql import func
-from app.config import get_settings, is_revman, is_approver
+from app.config import get_settings, is_revman, is_approver, is_guest
 from app.database import get_db
 from app.models import User, UserResponse
 
@@ -38,8 +38,9 @@ async def auth_callback(request: Request, db: AsyncSession = Depends(get_db)):
 
     email = user_info["email"]
 
-    # Check domain restriction
-    if settings.allowed_domain:
+    # Check domain restriction. Named guests (external collaborators) are the
+    # one exception — see GUEST_EMAILS in config.
+    if settings.allowed_domain and not is_guest(email):
         domain = email.split("@")[1]
         if domain != settings.allowed_domain:
             raise HTTPException(
@@ -103,6 +104,20 @@ def require_auth(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return _decorate_user(user)
+
+
+def block_guests(request: Request):
+    """Deny external guests. Used on the AI endpoints, which pull schema context
+    (and, for SQL Server, enumerate table/column names across EVERY database on
+    the server) regardless of the caller's table grants. That discovery surface
+    is fine for employees but defeats the point of scoping a guest to a handful
+    of tables."""
+    user = require_auth(request)
+    if is_guest(user.get("email", "")):
+        raise HTTPException(
+            status_code=403, detail="AI tools are not available to guest accounts."
+        )
+    return user
 
 
 def require_revman(request: Request):
