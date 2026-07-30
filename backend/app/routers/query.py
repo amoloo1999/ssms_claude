@@ -29,6 +29,7 @@ async def execute_sql(
     allowed, payload = await check_query_permissions(
         db, user, query.server_id, query.database, query.sql,
         get_driver(server.dialect).default_schema_for(server.database),
+        write_policy=server.write_policy or "read_write",
     )
     if not allowed:
         raise HTTPException(status_code=403, detail=payload)

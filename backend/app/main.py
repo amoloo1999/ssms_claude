@@ -48,7 +48,16 @@ async def seed_servers_from_config():
                     ServerConnection.from_config == True,
                 )
             )
-            if result.scalar_one_or_none():
+            existing = result.scalar_one_or_none()
+            if existing:
+                # Already seeded. config.yaml stays authoritative for the write
+                # policy of config-managed servers, so a connection that is
+                # marked read-only in config becomes read-only on the next
+                # startup rather than only for freshly-seeded rows. Everything
+                # else is left alone — those are editable in the UI.
+                desired = server_cfg.get("write_policy", "read_write")
+                if (existing.write_policy or "read_write") != desired:
+                    existing.write_policy = desired
                 continue
 
             db.add(
@@ -62,6 +71,7 @@ async def seed_servers_from_config():
                     kind=server_cfg.get("kind", "main"),
                     dialect=dialect,
                     database=server_cfg.get("database"),
+                    write_policy=server_cfg.get("write_policy", "read_write"),
                     from_config=True,
                 )
             )

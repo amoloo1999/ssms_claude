@@ -29,6 +29,10 @@ async def init_db():
             # SQL Server behavior is unchanged for everything already seeded.
             "ALTER TABLE server_connections ADD COLUMN dialect VARCHAR DEFAULT 'mssql'",
             "ALTER TABLE server_connections ADD COLUMN database VARCHAR",
+            # Per-server write policy. Existing rows back-fill to 'read_write',
+            # so behaviour is unchanged for everything already seeded; the
+            # read-only servers are set from config.yaml on the next startup.
+            "ALTER TABLE server_connections ADD COLUMN write_policy VARCHAR DEFAULT 'read_write'",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_server_host_port_config ON server_connections(host, port) WHERE from_config = 1",
         ]:
             try:

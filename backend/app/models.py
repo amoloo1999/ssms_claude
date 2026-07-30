@@ -33,6 +33,14 @@ class ServerConnection(Base):
     # database at a time (Postgres / MySQL / Snowflake). Ignored for MSSQL,
     # which switches databases per query via the connection string.
     database = Column(String, nullable=True)
+    # Per-server write policy, independent of the caller's role:
+    #   'read_write' — writes allowed for users whose role permits them
+    #   'read_only'  — writes refused for EVERYONE, RevMan included
+    # This is how "Aurora is read-only for all users" is expressed. The Aurora
+    # connection also authenticates as a read-only database user, so this is a
+    # second layer rather than the only one — but it means the app refuses the
+    # statement instead of sending it and surfacing a driver error.
+    write_policy = Column(String, default="read_write", nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -93,6 +101,7 @@ class User(Base):
 
 
 Dialect = Literal["mssql", "postgres", "mysql", "snowflake"]
+WritePolicy = Literal["read_write", "read_only"]
 
 
 class ServerConnectionCreate(BaseModel):
@@ -107,6 +116,7 @@ class ServerConnectionCreate(BaseModel):
     # Required for single-database engines (postgres/mysql/snowflake); ignored
     # for mssql.
     database: Optional[str] = None
+    write_policy: WritePolicy = "read_write"
 
 
 class ServerConnectionUpdate(BaseModel):
@@ -119,6 +129,7 @@ class ServerConnectionUpdate(BaseModel):
     kind: Optional[Literal["main", "gp"]] = None
     dialect: Optional[Dialect] = None
     database: Optional[str] = None
+    write_policy: Optional[WritePolicy] = None
 
 
 class ServerConnectionResponse(BaseModel):
@@ -133,6 +144,7 @@ class ServerConnectionResponse(BaseModel):
     kind: str = "main"
     dialect: str = "mssql"
     database: Optional[str] = None
+    write_policy: str = "read_write"
     created_at: datetime
     updated_at: Optional[datetime] = None
 

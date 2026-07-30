@@ -11,6 +11,8 @@ export interface Server {
   kind: 'main' | 'gp';
   dialect: Dialect;
   database: string | null;
+  /** 'read_only' refuses writes from every user, RevMan included. */
+  write_policy: 'read_write' | 'read_only';
   created_at: string;
   updated_at: string | null;
 }

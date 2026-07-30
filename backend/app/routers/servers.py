@@ -94,7 +94,25 @@ async def update_server(
     server = result.scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    for key, value in update.model_dump(exclude_unset=True).items():
+
+    fields = update.model_dump(exclude_unset=True)
+    # config.yaml is authoritative for config-managed servers' write policy, and
+    # the seeder re-asserts it every startup. Rejecting the edit here is clearer
+    # than accepting it and silently reverting on the next deploy.
+    if (
+        server.from_config
+        and "write_policy" in fields
+        and fields["write_policy"] != (server.write_policy or "read_write")
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"'{server.name}' is managed by config.yaml — change its "
+                "write_policy there, not here."
+            ),
+        )
+
+    for key, value in fields.items():
         setattr(server, key, value)
 
     await db.commit()

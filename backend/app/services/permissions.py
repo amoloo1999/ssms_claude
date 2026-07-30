@@ -25,8 +25,23 @@ def can_access_server(user: dict, server: ServerConnection) -> bool:
     return (server.kind or "main") == "main"
 
 
-def can_write(user: dict) -> bool:
-    return is_revman(user.get("email", ""))
+def server_allows_writes(server: ServerConnection | None) -> bool:
+    """Whether this connection accepts writes at all, regardless of who is asking.
+
+    A server marked ``read_only`` refuses writes for EVERYONE, RevMan included.
+    That's how "Aurora is read-only for all users" is expressed: it is a
+    property of the connection, not of the caller's role.
+    """
+    if server is None:
+        return False
+    return (getattr(server, "write_policy", None) or "read_write") == "read_write"
+
+
+def can_write(user: dict, server: ServerConnection | None = None) -> bool:
+    """Both must hold: the role permits writing, and the server accepts them."""
+    if not is_revman(user.get("email", "")):
+        return False
+    return server_allows_writes(server)
 
 
 async def get_user_grants(
@@ -183,14 +198,32 @@ async def check_query_permissions(
     database: str,
     sql: str,
     default_schema: str = "dbo",
+    write_policy: str = "read_write",
 ) -> tuple[bool, dict]:
-    """For non-RevMan users, validate a SQL string.
+    """Validate a SQL string before it is executed.
+
+    Two independent gates:
+
+    1. ``write_policy`` — a property of the connection. When the server is
+       read-only, writes are refused for everyone, RevMan included. This runs
+       BEFORE the role check, which is the whole point: it is not a role
+       exemption.
+    2. The role. RevMan may write on a read_write server and skips the grant
+       check; everyone else is restricted to SELECT over their granted tables.
 
     Returns (allowed, error_payload). error_payload is shaped for the frontend
     to surface inline `Request access` buttons:
 
         {"detail": "...", "missing_tables": [{"server_id", "database", "schema", "table"}, ...]}
     """
+    if write_policy == "read_only":
+        ok, _ = is_select_only(sql)
+        if not ok:
+            return False, {
+                "detail": "This connection is read-only — writes are blocked for every user.",
+                "missing_tables": [],
+            }
+
     if is_revman(user.get("email", "")):
         return True, {}
 

@@ -247,6 +247,11 @@ function ServerManager({ ctx }: Props) {
                 <div className="sm-card-name">
                   {server.name}
                   <span className="tag tag-neutral">{connectionEnv(server).toLowerCase()}</span>
+                  {server.write_policy === 'read_only' && (
+                    <span className="tag tag-outline" title="Writes are refused for every user, including RevMan">
+                      read-only
+                    </span>
+                  )}
                   {server.from_config && <span className="sm-badge">shared</span>}
                 </div>
                 <div className="sm-card-details">
