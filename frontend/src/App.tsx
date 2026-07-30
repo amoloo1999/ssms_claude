@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { getMe } from './services/api';
 import { User, Server } from './types';
 import Layout from './components/Layout/Layout';
 import LoginPage from './pages/LoginPage';
+import { Settings, loadSettings } from './utils/settings';
 import './App.css';
 
 export interface ActiveTable {
@@ -33,6 +34,8 @@ export interface AppContext {
   setPendingQuery: (q: PendingQuery | null) => void;
   refreshExplorerNode: string | null;
   setRefreshExplorerNode: (id: string | null) => void;
+  settings: Settings;
+  setSettings: (s: Settings) => void;
 }
 
 function App() {
@@ -44,6 +47,7 @@ function App() {
   const [activeTab, setActiveTab] = useState<'query' | 'table' | 'schema' | 'admin' | 'my-access'>('query');
   const [pendingQuery, setPendingQuery] = useState<PendingQuery | null>(null);
   const [refreshExplorerNode, setRefreshExplorerNode] = useState<string | null>(null);
+  const [settings, setSettings] = useState<Settings>(() => loadSettings());
 
   useEffect(() => {
     getMe()
@@ -70,6 +74,8 @@ function App() {
     setPendingQuery,
     refreshExplorerNode,
     setRefreshExplorerNode,
+    settings,
+    setSettings,
   };
 
   return (

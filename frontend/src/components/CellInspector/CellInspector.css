@@ -1,0 +1,109 @@
+/* Cell inspector — handoff screen 3B, left panel. */
+
+.ci {
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  flex-shrink: 0;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-sm);
+}
+
+.ci-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.ci-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 12.5px;
+  color: var(--color-accent-300);
+}
+
+.ci-meta {
+  font-size: 11px;
+  color: var(--color-neutral-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ci-close {
+  margin-left: auto;
+  padding: 0 var(--space-1);
+  font-size: 12px;
+  color: var(--color-neutral-500);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+.ci-close:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 10%, transparent);
+}
+
+.ci-formats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+.ci-size {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+}
+
+.ci-content {
+  flex: 1;
+  overflow: auto;
+  padding: 0 var(--space-4) var(--space-4);
+  min-height: 0;
+}
+
+.ci-body {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-neutral-300);
+}
+
+.ci-key {
+  color: var(--color-accent-300);
+}
+
+.ci-val {
+  color: var(--color-positive);
+}
+
+.ci-null {
+  padding: var(--space-4) 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+
+.ci-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-divider);
+}
+
+.ci-hint {
+  font-size: 10.5px;
+  color: var(--color-neutral-600);
+}
