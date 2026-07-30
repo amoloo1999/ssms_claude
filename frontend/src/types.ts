@@ -78,6 +78,8 @@ export interface User {
   picture: string;
   role: 'revman' | 'user';
   is_approver: boolean;
+  /** Exempt from a connection's read_only policy — may write even on Aurora. */
+  can_write_anywhere: boolean;
 }
 
 export interface MissingTable {

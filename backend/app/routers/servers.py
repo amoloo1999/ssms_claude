@@ -96,22 +96,10 @@ async def update_server(
         raise HTTPException(status_code=404, detail="Server not found")
 
     fields = update.model_dump(exclude_unset=True)
-    # config.yaml is authoritative for config-managed servers' write policy, and
-    # the seeder re-asserts it every startup. Rejecting the edit here is clearer
-    # than accepting it and silently reverting on the next deploy.
-    if (
-        server.from_config
-        and "write_policy" in fields
-        and fields["write_policy"] != (server.write_policy or "read_write")
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"'{server.name}' is managed by config.yaml — change its "
-                "write_policy there, not here."
-            ),
-        )
-
+    # write_policy is editable here even on config-managed servers: the seeder
+    # only overrides it when config.yaml names one explicitly, so setting it
+    # through the UI sticks. That keeps marking a connection read-only from
+    # requiring an edit to a credential-bearing file on the production box.
     for key, value in fields.items():
         setattr(server, key, value)
 

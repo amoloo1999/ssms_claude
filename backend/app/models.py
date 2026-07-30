@@ -229,6 +229,8 @@ class UserResponse(BaseModel):
     picture: str
     role: Literal["revman", "user"] = "user"
     is_approver: bool = False
+    # Exempt from a connection's read_only policy (WRITE_ANYWHERE_EMAILS).
+    can_write_anywhere: bool = False
 
     class Config:
         from_attributes = True

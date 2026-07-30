@@ -121,6 +121,28 @@ function ServerManager({ ctx }: Props) {
     setTestResult((prev) => ({ ...prev, [id]: result }));
   };
 
+  const handleTogglePolicy = async (server: Server) => {
+    const next = server.write_policy === 'read_only' ? 'read_write' : 'read_only';
+    // Making a connection writable again is the direction worth confirming —
+    // read-only is the safe state, and this affects every user of the app.
+    if (
+      next === 'read_write' &&
+      !confirm(
+        `Allow writes on "${server.name}"?\n\n` +
+          'Every RevMan will be able to run UPDATE, DELETE and DDL against this ' +
+          'connection.'
+      )
+    ) {
+      return;
+    }
+    try {
+      await updateServer(server.id, { write_policy: next });
+      await refresh();
+    } catch (err: any) {
+      alert(err.response?.data?.detail || err.message);
+    }
+  };
+
   return (
     <div className="server-manager">
       <div className="sm-header">
@@ -266,6 +288,20 @@ function ServerManager({ ctx }: Props) {
                 )}
               </div>
               <div className="sm-card-actions">
+                {/* Settable here rather than only in config.yaml, so marking a
+                    connection read-only doesn't require editing a
+                    credential-bearing file on the production box. */}
+                <button
+                  className={`sm-policy-btn ${server.write_policy === 'read_only' ? 'on' : ''}`}
+                  onClick={() => handleTogglePolicy(server)}
+                  title={
+                    server.write_policy === 'read_only'
+                      ? 'Read-only: writes refused for every user. Click to allow writes.'
+                      : 'Writes allowed. Click to make this connection read-only for everyone.'
+                  }
+                >
+                  {server.write_policy === 'read_only' ? 'Read-only' : 'Writable'}
+                </button>
                 <button className="sm-icon-btn" onClick={() => handleTest(server.id)} title="Test Connection">
                   <VscDebugStart />
                 </button>

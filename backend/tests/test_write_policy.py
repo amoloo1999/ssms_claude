@@ -23,6 +23,8 @@ from app.services.permissions import (  # noqa: E402
 
 REVMAN = {"email": "amoloo@williamwarren.com"}
 VIEWER = {"email": "someone.else@williamwarren.com"}
+# On WRITE_ANYWHERE_EMAILS: exempt from a connection's read_only policy.
+EXEMPT = {"email": "cpj@williamwarren.com"}
 
 WRITE_SQL = "UPDATE dbo.Sites SET Name = 'x' WHERE SiteId = 1"
 READ_SQL = "SELECT * FROM dbo.Sites"
@@ -103,6 +105,36 @@ def test_policy_check_precedes_role_check():
     allowed, payload = _check(VIEWER, WRITE_SQL, "read_only")
     assert allowed is False
     assert "read-only" in payload["detail"]
+
+
+# ── the named exemption (WRITE_ANYWHERE_EMAILS) ─────────────────────────────
+
+
+def test_exempt_user_may_write_on_read_only_server():
+    assert server_allows_writes(_server("read_only"), EXEMPT) is True
+    assert can_write(EXEMPT, _server("read_only")) is True
+    allowed, _ = _check(EXEMPT, WRITE_SQL, "read_only")
+    assert allowed is True
+
+
+def test_exemption_is_per_user_not_global():
+    # The exemption must not leak: another RevMan on the same connection is
+    # still refused. This is the test that would catch an exemption
+    # accidentally implemented as a property of the server.
+    assert server_allows_writes(_server("read_only"), REVMAN) is False
+    assert can_write(REVMAN, _server("read_only")) is False
+
+
+def test_exemption_without_user_denies():
+    # No caller supplied — fall back to the connection's own policy.
+    assert server_allows_writes(_server("read_only")) is False
+
+
+def test_exemption_lifts_connection_gate_only_not_role_gate():
+    # A viewer is still a viewer. If this ever passes, the exemption has been
+    # wired as a role grant rather than a connection-gate lift.
+    viewer_exempt = {"email": "someone.else@williamwarren.com"}
+    assert can_write(viewer_exempt, _server("read_only")) is False
 
 
 if __name__ == "__main__":

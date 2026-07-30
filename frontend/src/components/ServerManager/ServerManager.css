@@ -191,6 +191,34 @@
   gap: var(--space-1);
 }
 
+/* Read-only is the safe state, so it reads as a deliberate mark (accent
+   outline) and "Writable" stays quiet — the opposite would make the risky
+   state the loud one. */
+.sm-policy-btn {
+  padding: 3px var(--space-3);
+  font-size: 11px;
+  color: var(--color-neutral-500);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  transition: background 140ms ease-out, color 140ms ease-out, border-color 140ms ease-out;
+}
+
+.sm-policy-btn:hover {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+.sm-policy-btn.on {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.sm-policy-btn.on:hover {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
 .sm-icon-btn {
   display: flex;
   align-items: center;

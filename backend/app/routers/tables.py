@@ -66,7 +66,7 @@ def _require_write(user: dict, server: ServerConnection):
     read-only server (Aurora) refuses writes even from a RevMan. Only then does
     the caller's role matter.
     """
-    if not server_allows_writes(server):
+    if not server_allows_writes(server, user):
         raise HTTPException(
             status_code=403,
             detail=f"'{server.name}' is a read-only connection — writes are blocked for every user.",
