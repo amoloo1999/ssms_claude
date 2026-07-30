@@ -1,0 +1,108 @@
+/* Export dialog — handoff screen 4B. */
+
+.exp-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  padding: var(--space-8);
+  background: color-mix(in srgb, var(--color-neutral-900) 62%, transparent);
+}
+
+.exp {
+  width: 520px;
+  max-width: 100%;
+  padding: var(--space-6);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.exp-title {
+  margin-bottom: var(--space-6);
+  font-size: 18px;
+}
+
+.exp-section {
+  margin-bottom: var(--space-6);
+}
+
+.exp-kicker {
+  margin-bottom: var(--space-3);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.exp-radio {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
+  cursor: pointer;
+}
+
+.exp-radio.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.exp-radio input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.exp-dot {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--color-divider);
+  border-radius: 50%;
+  transition: background 140ms ease-out, border-color 140ms ease-out;
+}
+
+.exp-dot.exp-check {
+  border-radius: 3px;
+}
+
+.exp-radio:hover .exp-dot {
+  border-color: var(--color-accent);
+}
+
+.exp-radio input:checked + .exp-dot {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 3px var(--color-surface);
+}
+
+.exp-radio input:focus-visible + .exp-dot {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.exp-note {
+  margin-bottom: var(--space-6);
+  padding: var(--space-3);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--color-neutral-500);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  border-radius: var(--radius-sm);
+}
+
+.exp-note .mono {
+  font-size: 11px;
+  color: var(--color-accent-300);
+}
+
+.exp-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

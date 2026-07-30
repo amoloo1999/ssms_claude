@@ -1,0 +1,95 @@
+/* Keyboard shortcuts sheet — handoff screen 2I. */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  padding: var(--space-8);
+  background: color-mix(in srgb, var(--color-neutral-900) 62%, transparent);
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  width: 760px;
+  max-width: 100%;
+  max-height: calc(100vh - var(--space-8) * 2);
+  padding: var(--space-6) var(--space-8) var(--space-4);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+  flex-shrink: 0;
+}
+
+.sheet-header h3 {
+  font-size: 18px;
+  color: var(--color-text);
+}
+
+.sheet-hint {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-neutral-600);
+}
+
+.sheet-columns {
+  columns: 2;
+  column-gap: var(--space-8);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.sheet-group {
+  /* Keep a group's kicker attached to its rows when the columns break. */
+  break-inside: avoid;
+  margin-bottom: var(--space-6);
+}
+
+.sheet-kicker {
+  margin-bottom: var(--space-2);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.sheet-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.sheet-label {
+  font-size: 12.5px;
+  color: var(--color-neutral-300);
+}
+
+.sheet-keys {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-accent-300);
+  white-space: nowrap;
+}
+
+.sheet-footer {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  border-top: 1px solid var(--color-divider);
+  flex-shrink: 0;
+}
