@@ -442,6 +442,47 @@ function QueryEditor({ ctx }: Props) {
     editorRef.current = editor;
     monacoRef.current = monaco;
 
+    // Monaco ships its own palette, so the editor is the one surface the CSS
+    // token layer can't reach. Mirror the Nocturne tokens here: keywords take
+    // the accent, literals the positive green, and the chrome (gutter,
+    // suggest widget, selection) matches the panels around it.
+    monaco.editor.defineTheme('nocturne', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'keyword', foreground: '9184d9' },
+        { token: 'keyword.sql', foreground: '9184d9' },
+        { token: 'predefined.sql', foreground: 'd2cefd' },
+        { token: 'operator.sql', foreground: '9397ab' },
+        { token: 'string', foreground: 'aebf92' },
+        { token: 'string.sql', foreground: 'aebf92' },
+        { token: 'number', foreground: 'aebf92' },
+        { token: 'comment', foreground: '75798c', fontStyle: 'italic' },
+        { token: 'identifier', foreground: 'e9e9ed' },
+      ],
+      colors: {
+        'editor.background': '#161826',
+        'editor.foreground': '#e9e9ed',
+        'editor.lineHighlightBackground': '#1c1f30',
+        'editor.selectionBackground': '#2b2741',
+        'editorCursor.foreground': '#9184d9',
+        'editorLineNumber.foreground': '#595d6c',
+        'editorLineNumber.activeForeground': '#9184d9',
+        'editorIndentGuide.background': '#292b31',
+        'editorWidget.background': '#232532',
+        'editorWidget.border': '#3f424d',
+        'editorSuggestWidget.background': '#232532',
+        'editorSuggestWidget.border': '#3f424d',
+        'editorSuggestWidget.selectedBackground': '#2b2741',
+        'editorSuggestWidget.highlightForeground': '#d2cefd',
+        'editorHoverWidget.background': '#232532',
+        'editorHoverWidget.border': '#3f424d',
+        'scrollbarSlider.background': '#3f424d99',
+        'scrollbarSlider.hoverBackground': '#595d6ccc',
+      },
+    });
+    monaco.editor.setTheme('nocturne');
+
     // Ctrl+Enter / Cmd+Enter — call through ref so it always sees the latest
     // handleExecute (avoids the original stale-closure bug).
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
@@ -816,13 +857,16 @@ function QueryEditor({ ctx }: Props) {
                 <VscDebugStop /> Stop
               </button>
             ) : (
-              <button
-                className="execute-btn"
-                onClick={handleExecute}
-                disabled={!selectedServer || !selectedDb}
-              >
-                <VscPlay /> Execute
-              </button>
+              <>
+                <button
+                  className="execute-btn"
+                  onClick={handleExecute}
+                  disabled={!selectedServer || !selectedDb}
+                >
+                  <VscPlay /> Execute
+                </button>
+                <span className="kbd">⌘↵</span>
+              </>
             )}
           </div>
 
@@ -873,14 +917,21 @@ function QueryEditor({ ctx }: Props) {
                 key={activeTab.id}
                 height="100%"
                 defaultLanguage="sql"
-                theme="vs-dark"
+                theme="nocturne"
                 value={activeTab.sql}
                 onChange={(v) => updateTab(activeTab.id, { sql: v || '' })}
                 onMount={handleEditorMount}
                 options={{
                   minimap: { enabled: false },
-                  fontSize: 14,
+                  fontFamily: "'JetBrains Mono', 'Cascadia Mono', Consolas, monospace",
+                  fontSize: 13,
+                  // 1.8 line-height per the handoff's editor spec — SQL reads
+                  // as a list of clauses, not a wall.
+                  lineHeight: 23,
                   lineNumbers: 'on',
+                  lineNumbersMinChars: 4,
+                  padding: { top: 10, bottom: 10 },
+                  renderLineHighlight: 'line',
                   scrollBeyondLastLine: false,
                   automaticLayout: true,
                   tabSize: 4,

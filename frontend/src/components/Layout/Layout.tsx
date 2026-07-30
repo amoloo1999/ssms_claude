@@ -8,6 +8,7 @@ import TableBrowser from '../TableBrowser/TableBrowser';
 import ServerManager from '../ServerManager/ServerManager';
 import AdminPage from '../../pages/AdminPage';
 import MyAccessPage from '../../pages/MyAccessPage';
+import { connectionColor, connectionEnv } from '../../utils/connectionColor';
 import './Layout.css';
 
 interface Props {
@@ -27,13 +28,23 @@ function Layout({ ctx }: Props) {
   const isRevMan = ctx.user?.role === 'revman';
   const isApprover = !!ctx.user?.is_approver;
 
+  // The active connection drives the colour system: its colour paints the
+  // connection bar's left edge, the status bar's top rule and the tree dot.
+  const activeServer =
+    ctx.servers.find((s) => s.id === ctx.activeQuery?.serverId) || null;
+  const connColor = connectionColor(activeServer);
+
+  // Write policy is real state, not decoration — non-RevMan executions are
+  // rejected by the backend's denylist (services/permissions.py).
+  const writePolicy = isRevMan ? 'WRITES ALLOWED' : 'VIEW ONLY — WRITES BLOCKED';
+
   return (
-    <div className="layout">
-      {/* Top Bar */}
+    <div className="layout" style={{ ['--conn-active' as string]: connColor }}>
+      {/* ── Top bar ─────────────────────────────────────────────────────── */}
       <div className="topbar">
         <div className="topbar-left">
           <span className="topbar-title">SQL Studio</span>
-          <div className="topbar-tabs">
+          <nav className="topbar-tabs">
             <button
               className={`tab-btn ${ctx.activeTab === 'query' ? 'active' : ''}`}
               onClick={() => ctx.setActiveTab('query')}
@@ -52,7 +63,7 @@ function Layout({ ctx }: Props) {
                 className={`tab-btn ${ctx.activeTab === 'schema' ? 'active' : ''}`}
                 onClick={() => ctx.setActiveTab('schema')}
               >
-                Server Manager
+                Servers
               </button>
             )}
             {!isRevMan && (
@@ -71,26 +82,50 @@ function Layout({ ctx }: Props) {
                 Admin
               </button>
             )}
-          </div>
+          </nav>
         </div>
         <div className="topbar-right">
           {ctx.user && (
             <>
               <img src={ctx.user.picture} alt="" className="avatar" />
-              <span className="user-name">
-                {ctx.user.name}
-                {isRevMan && <span className="role-badge role-revman">RevMan</span>}
-                {!isRevMan && <span className="role-badge role-user">View</span>}
-              </span>
-              <button className="logout-btn" onClick={handleLogout}>
-                Logout
+              <span className="user-name">{ctx.user.name}</span>
+              <span className="tag tag-outline">{isRevMan ? 'RevMan' : 'View'}</span>
+              <button className="btn btn-secondary" onClick={handleLogout}>
+                Log out
               </button>
             </>
           )}
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* ── Connection bar ──────────────────────────────────────────────────
+          The load-bearing safety feature: its inset left edge is the active
+          connection's colour, and it states the write policy in the open. */}
+      <div className="connbar">
+        {activeServer ? (
+          <>
+            <span className="conn-pill">
+              <span className="conn-dot" />
+              {activeServer.name.toUpperCase()}
+            </span>
+            <span className="conn-policy">
+              {connectionEnv(activeServer)} — {writePolicy}
+            </span>
+            <span className="conn-divider" />
+            <span className="conn-db mono">
+              {ctx.activeQuery?.database || 'no database'}
+            </span>
+            <span className="conn-dialect">{activeServer.dialect}</span>
+          </>
+        ) : (
+          <span className="conn-policy conn-policy-idle">NO ACTIVE CONNECTION</span>
+        )}
+        <span className="conn-session">
+          {ctx.servers.length} server{ctx.servers.length === 1 ? '' : 's'} configured
+        </span>
+      </div>
+
+      {/* ── Body ────────────────────────────────────────────────────────── */}
       <div className="main-content">
         <Split
           className="split-horizontal"
@@ -99,17 +134,13 @@ function Layout({ ctx }: Props) {
           gutterSize={4}
           direction="horizontal"
         >
-          {/* Left Panel - Object Explorer */}
           <div className="panel-left">
             <ObjectExplorer ctx={ctx} />
           </div>
 
-          {/* Right Panel - Content Area */}
           <div className="panel-right">
             {ctx.activeTab === 'query' && <QueryEditor ctx={ctx} />}
-            {ctx.activeTab === 'table' && ctx.activeTable && (
-              <TableBrowser ctx={ctx} />
-            )}
+            {ctx.activeTab === 'table' && ctx.activeTable && <TableBrowser ctx={ctx} />}
             {ctx.activeTab === 'schema' && isRevMan && <ServerManager ctx={ctx} />}
             {ctx.activeTab === 'admin' && isApprover && <AdminPage ctx={ctx} />}
             {ctx.activeTab === 'my-access' && !isRevMan && <MyAccessPage ctx={ctx} />}
@@ -117,14 +148,18 @@ function Layout({ ctx }: Props) {
         </Split>
       </div>
 
-      {/* Status Bar */}
+      {/* ── Status bar ──────────────────────────────────────────────────── */}
       <div className="statusbar">
         <span>
-          {ctx.activeQuery
-            ? `Connected: Server ${ctx.activeQuery.serverId} / ${ctx.activeQuery.database}`
+          {activeServer
+            ? `${activeServer.name} / ${ctx.activeQuery?.database || '—'} — connected as ${
+                ctx.user?.email || ''
+              }`
             : 'No active connection'}
         </span>
-        <span>{ctx.servers.length} server(s) configured</span>
+        <span className="statusbar-right">
+          {ctx.servers.length} server{ctx.servers.length === 1 ? '' : 's'} reachable
+        </span>
       </div>
     </div>
   );

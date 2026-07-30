@@ -2,160 +2,188 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  background: var(--color-bg);
 }
 
 .explorer-header {
-  padding: 8px 12px;
-  font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-3) var(--space-4);
+  font-size: 11.5px;
+  color: var(--color-accent-300);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-divider);
   flex-shrink: 0;
 }
 
 .explorer-tree {
   flex: 1;
   overflow: auto;
-  padding: 4px 0;
+  padding: var(--space-2) 0;
 }
 
 .explorer-empty {
-  padding: 24px 16px;
-  color: var(--text-secondary);
+  padding: var(--space-8) var(--space-6);
+  color: var(--color-neutral-500);
   text-align: center;
   line-height: 1.6;
+  font-size: 12.5px;
 }
 
+.explorer-footer {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-4);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  border-top: 1px solid var(--color-divider);
+}
+
+/* ── Tree ────────────────────────────────────────────────────────────────── */
 .tree-node {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
+  gap: var(--space-2);
+  /* padding-left is set inline per depth (16px steps); this is the y-padding
+     and the right edge only. */
+  padding: 3px 10px;
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
+  font-size: 12.5px;
+  transition: background 140ms ease-out;
 }
 
 .tree-node:hover {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
 }
 
 .tree-node.active {
-  background: var(--bg-active);
-  color: var(--text-bright);
+  background: var(--color-accent-900);
+  color: var(--color-accent-300);
+  /* An inset rule rather than a border — the depth padding is inline, so a
+     real border-left would shift every nested row. */
+  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 .tree-arrow {
-  width: 16px;
-  font-size: 8px;
+  width: 10px;
+  font-size: 9px;
   text-align: center;
-  color: var(--text-secondary);
+  color: var(--color-neutral-600);
   flex-shrink: 0;
 }
 
 .tree-icon {
   display: flex;
   align-items: center;
-  color: var(--accent);
+  color: var(--color-accent);
+  opacity: 0.75;
   flex-shrink: 0;
 }
 
+/* A connection's own colour, matching the connection bar's edge. */
+.tree-conn-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
 .tree-label {
+  /* Identifiers are mono — they are names of things in the database, and
+     they line up with the same names in the editor and the grid. */
+  font-family: var(--font-mono);
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .tree-loading {
-  color: var(--text-secondary);
+  color: var(--color-neutral-600);
   font-size: 11px;
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 
 .tree-node.column-node {
-  color: var(--text-secondary);
+  color: var(--color-neutral-500);
   font-size: 12px;
 }
 
 .tree-node.column-node .tree-icon {
-  color: var(--text-secondary);
+  color: var(--color-neutral-600);
   opacity: 0.7;
 }
 
-/* Rename Input */
 .rename-input {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border: 1px solid var(--accent);
-  padding: 1px 4px;
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
   min-width: 100px;
+  padding: 1px 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  outline: none;
 }
 
-/* Context Menu */
+/* ── Context menu ────────────────────────────────────────────────────────── */
 .context-menu {
   position: fixed;
   z-index: 1000;
-  background: var(--bg-secondary, #252526);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  min-width: 200px;
-  padding: 4px 0;
+  min-width: 210px;
+  padding: var(--space-2) 0;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
 }
 
 .context-menu-item {
-  padding: 6px 16px;
+  padding: 5px var(--space-6);
+  font-size: 12.5px;
+  color: var(--color-text);
   cursor: pointer;
-  font-size: 13px;
-  color: var(--text-primary, #ccc);
+  transition: background 140ms ease-out;
 }
 
 .context-menu-item:hover {
-  background: var(--bg-hover, #2a2d2e);
+  background: var(--color-accent-900);
+  color: var(--color-accent-300);
 }
 
 .context-menu-danger {
-  color: #f44747;
+  color: var(--color-danger-text);
 }
 
 .context-menu-danger:hover {
-  background: rgba(244, 71, 71, 0.15);
+  background: var(--color-danger-tint);
+  color: var(--color-danger-text);
 }
 
 .context-menu-separator {
   height: 1px;
-  background: var(--border-color, #3c3c3c);
-  margin: 4px 0;
+  background: var(--color-divider);
+  margin: var(--space-2) 0;
 }
 
-/* Modal Overlay */
+/* ── Modals ──────────────────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  inset: 0;
+  z-index: 2000;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2000;
+  background: color-mix(in srgb, var(--color-neutral-900) 62%, transparent);
 }
 
 .modal-content {
-  background: var(--bg-secondary, #1e1e1e);
-  border: 1px solid var(--border-color, #3c3c3c);
-  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
   width: 700px;
   max-width: 90vw;
   max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
 }
 
 .modal-narrow {
@@ -166,48 +194,45 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color, #3c3c3c);
+  padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--color-divider);
 }
 
 .modal-header h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary, #ccc);
+  font-size: 15px;
+  color: var(--color-text);
 }
 
 .modal-close {
   background: none;
   border: none;
-  color: var(--text-secondary, #888);
-  font-size: 20px;
-  cursor: pointer;
-  padding: 0 4px;
+  color: var(--color-neutral-500);
+  font-size: 18px;
   line-height: 1;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
 }
 
 .modal-close:hover {
-  color: var(--text-primary, #ccc);
+  color: var(--color-text);
 }
 
 .modal-body {
-  padding: 16px;
+  padding: var(--space-6);
   overflow: auto;
   flex: 1;
 }
 
 .properties-section {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-8);
 }
 
 .properties-section h4 {
-  margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary, #888);
+  margin-bottom: var(--space-3);
+  font-size: 11px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--color-neutral-500);
 }
 
 .properties-table {
@@ -219,18 +244,24 @@
 .properties-table th,
 .properties-table td {
   text-align: left;
-  padding: 5px 10px;
-  border-bottom: 1px solid var(--border-color, #2d2d2d);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
 }
 
 .properties-table th {
-  font-weight: 600;
-  color: var(--text-secondary, #888);
   font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  color: var(--color-neutral-500);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.properties-table td {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .properties-table tr:hover td {
-  background: var(--bg-hover, #2a2d2e);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
 }

@@ -17,110 +17,170 @@
   height: 100%;
 }
 
-.result-tabs {
+/* ── Query tab strip ─────────────────────────────────────────────────────── */
+.editor-tab-strip {
   display: flex;
-  gap: 2px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-  padding: 4px 6px 0 6px;
+  align-items: stretch;
+  min-height: var(--h-tabstrip);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-divider);
   overflow-x: auto;
+  flex-shrink: 0;
 }
 
-.result-tab {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-bottom: none;
-  color: var(--text-secondary);
-  padding: 4px 12px;
+.editor-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px var(--space-2) 4px var(--space-4);
   font-size: 12px;
-  border-radius: 3px 3px 0 0;
+  color: var(--color-neutral-500);
+  border-right: 1px solid var(--color-divider);
+  /* Reserve the active tab's top rule on every tab so selecting one doesn't
+     nudge the row by a pixel. */
+  border-top: 1px solid transparent;
   cursor: pointer;
   white-space: nowrap;
+  user-select: none;
+  transition: background 140ms ease-out, color 140ms ease-out;
 }
 
-.result-tab.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+.editor-tab:hover:not(.active) {
+  color: var(--color-neutral-300);
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
 }
 
+.editor-tab.active {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-top-color: var(--color-accent);
+}
+
+.editor-tab-title {
+  pointer-events: none;
+}
+
+.editor-tab-close,
+.editor-tab-add {
+  display: flex;
+  align-items: center;
+  padding: 2px var(--space-1);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-600);
+}
+
+.editor-tab-close:hover,
+.editor-tab-add:hover {
+  background: color-mix(in srgb, var(--color-text) 12%, transparent);
+  color: var(--color-text);
+}
+
+.editor-tab-add {
+  padding: 4px var(--space-3);
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
 .query-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
-  gap: 8px;
+  gap: var(--space-3);
+  padding: 6px var(--space-4);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-divider);
   flex-shrink: 0;
 }
 
-.toolbar-left, .toolbar-right {
+.toolbar-left,
+.toolbar-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .db-select {
-  padding: 4px 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  border-radius: 3px;
   min-width: 150px;
+  padding: 4px var(--space-3);
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
 }
 
+.db-select:hover {
+  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+
+/* The primary action is an accent outline, never a fill. */
 .execute-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 14px;
-  background: var(--accent);
-  border: none;
-  color: white;
-  border-radius: 3px;
-  font-weight: 500;
+  padding: 4px var(--space-4);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 12.5px;
+  color: var(--color-accent);
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  transition: background 140ms ease-out;
 }
 
 .execute-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.execute-btn:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
 }
 
 .execute-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
+/* Cancelling is destructive-adjacent, so it takes the danger outline — the
+   same red the production connection uses. */
 .stop-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 14px;
-  background: #c0392b;
-  border: none;
-  color: white;
-  border-radius: 3px;
-  font-weight: 500;
-  cursor: pointer;
+  padding: 4px var(--space-4);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 12.5px;
+  color: var(--color-danger-text);
+  background: transparent;
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--radius-sm);
+  transition: background 140ms ease-out;
 }
 
 .stop-btn:hover {
-  background: #a5322a;
+  background: color-mix(in srgb, var(--color-danger) 15%, transparent);
 }
 
+/* Secondary actions ride as surface chips. */
 .export-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  border-radius: 3px;
+  gap: var(--space-1);
+  padding: 4px var(--space-3);
+  font-size: 12px;
+  color: var(--color-neutral-300);
+  background: var(--color-surface);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  transition: background 140ms ease-out, color 140ms ease-out;
 }
 
 .export-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--color-text) 12%, transparent);
+  color: var(--color-text);
 }
 
 .export-btn:disabled {
@@ -128,6 +188,7 @@
   cursor: default;
 }
 
+/* ── Editor / results split ──────────────────────────────────────────────── */
 .split-vertical {
   display: flex;
   flex-direction: column;
@@ -139,30 +200,68 @@
 .editor-pane {
   overflow: hidden;
   min-height: 0;
+  background: var(--color-bg);
 }
 
 .results-pane {
+  display: flex;
+  flex-direction: column;
   overflow: auto;
   min-height: 0;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border-color);
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-divider);
+}
+
+/* ── Result-set tabs ─────────────────────────────────────────────────────── */
+.result-tabs {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4) 0;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-divider);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.result-tab {
+  padding: var(--space-2) 2px;
+  font-size: 12px;
+  color: var(--color-neutral-500);
+  background: none;
+  border: none;
+  white-space: nowrap;
+  transition: color 140ms ease-out;
+}
+
+.result-tab:hover:not(.active) {
+  color: var(--color-neutral-300);
+}
+
+/* Active result tab is an accent underline, not a filled pill. */
+.result-tab.active {
+  color: var(--color-accent-300);
+  box-shadow: inset 0 -1px 0 var(--color-accent);
 }
 
 .result-stats {
-  padding: 6px 12px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-divider);
+  flex-shrink: 0;
 }
 
 .result-error {
-  padding: 16px;
-  color: var(--error);
-  background: #2d1515;
-  margin: 8px;
-  border-radius: 4px;
-  border: 1px solid #5a2020;
+  margin: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  font-size: 12.5px;
+  color: var(--color-danger-text);
+  background: var(--color-danger-tint);
+  border-radius: var(--radius-md);
+  box-shadow: inset 2px 0 0 var(--color-danger);
 }
 
 .result-placeholder {
@@ -170,58 +269,6 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-secondary);
-}
-
-.editor-tab-strip {
-  display: flex;
-  align-items: stretch;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-  overflow-x: auto;
-  min-height: 30px;
-}
-
-.editor-tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px 4px 12px;
-  border-right: 1px solid var(--border-color);
-  cursor: pointer;
-  color: var(--text-secondary);
-  font-size: 12px;
-  white-space: nowrap;
-  user-select: none;
-}
-
-.editor-tab.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.editor-tab-title {
-  pointer-events: none;
-}
-
-.editor-tab-close,
-.editor-tab-add {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  padding: 2px 4px;
-  border-radius: 3px;
-}
-
-.editor-tab-close:hover,
-.editor-tab-add:hover {
-  background: var(--bg-tertiary, rgba(255, 255, 255, 0.08));
-  color: var(--text-primary);
-}
-
-.editor-tab-add {
-  padding: 4px 10px;
+  font-size: 12.5px;
+  color: var(--color-neutral-600);
 }

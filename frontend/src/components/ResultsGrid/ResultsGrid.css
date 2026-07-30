@@ -1,18 +1,96 @@
+/* ag-grid carries its own palette, so the alpine-dark theme is retuned onto
+   the Nocturne tokens through ag's `--ag-*` variable API (v31). Everything
+   here maps a grid role onto a token — no independent colour decisions. */
+
 .results-grid {
   height: 100%;
   width: 100%;
+
+  --ag-background-color: var(--color-bg);
+  --ag-foreground-color: var(--color-text);
+  --ag-secondary-foreground-color: var(--color-neutral-500);
+  --ag-data-color: var(--color-text);
+  --ag-border-color: var(--color-divider);
+  --ag-secondary-border-color: var(--color-divider);
+
+  /* The header is the one surface-filled row in the grid. */
+  --ag-header-background-color: var(--color-surface);
+  --ag-header-foreground-color: var(--color-neutral-500);
+  --ag-header-column-separator-color: transparent;
+  /* ag paints a short bar per column as the resize affordance. Against this
+     ground it reads as a stray mark between headers, and the handoff's grid
+     has none — hide it. Columns still resize on hover and drag. */
+  --ag-header-column-resize-handle-color: transparent;
+
+  /* Rows read as hairline-separated text, not as a striped table. */
+  --ag-odd-row-background-color: transparent;
+  --ag-row-hover-color: color-mix(in srgb, var(--color-text) 5%, transparent);
+  --ag-selected-row-background-color: var(--color-accent-900);
+  --ag-range-selection-background-color: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  --ag-range-selection-border-color: var(--color-accent);
+
+  --ag-control-panel-background-color: var(--color-surface);
+  --ag-input-focus-border-color: var(--color-accent);
+  --ag-checkbox-checked-color: var(--color-accent);
+  --ag-alpine-active-color: var(--color-accent);
+  --ag-selected-tab-underline-color: var(--color-accent);
+
+  --ag-font-family: var(--font-body);
+  --ag-font-size: 12.5px;
+  --ag-header-height: 28px;
+  --ag-row-height: 26px;
+  --ag-grid-size: 3px;
+  --ag-borders: none;
+  --ag-border-radius: var(--radius-sm);
 }
 
 .results-grid .ag-root-wrapper {
   border: none;
+  background: var(--color-bg);
 }
 
-.results-grid .ag-header {
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
+/* 11px uppercase column headers, per the handoff's grid spec. */
+.results-grid .ag-header-cell-text {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+
+.results-grid .ag-row {
+  border-bottom: 1px solid var(--color-divider);
 }
 
 .results-grid .ag-cell {
-  font-size: 12px;
-  font-family: 'Consolas', 'Courier New', monospace;
+  line-height: 24px;
+}
+
+/* Text stays in Inter; figures go mono, tabular and right-aligned so a
+   column of numbers lines up. */
+.results-grid .cell-text {
+  font-family: var(--font-body);
+}
+
+.results-grid .cell-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.results-grid .header-num .ag-header-cell-label {
+  justify-content: flex-end;
+}
+
+/* NULLs are absence, not a value — mute them. */
+.results-grid .ag-cell:empty::after {
+  content: '—';
+  color: var(--color-neutral-700);
+}
+
+.results-grid .ag-menu,
+.results-grid .ag-popup-child {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
 }

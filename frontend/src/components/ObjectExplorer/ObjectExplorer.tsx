@@ -15,6 +15,7 @@ import {
   quoteIdent,
 } from '../../utils/sqlDialect';
 import { VscDatabase, VscServer, VscTable, VscSymbolMethod, VscSymbolMisc, VscFolder, VscEye, VscSymbolField } from 'react-icons/vsc';
+import { connectionColor } from '../../utils/connectionColor';
 import './ObjectExplorer.css';
 
 interface Props {
@@ -409,7 +410,16 @@ function ObjectExplorer({ ctx }: Props) {
           <span className="tree-arrow">
             {expandable ? (isExpanded ? '\u25bc' : '\u25b6') : ' '}
           </span>
-          <span className="tree-icon">{getIcon(node.type)}</span>
+          {node.type === 'server' ? (
+            /* A connection carries its colour here, matching the connection
+               bar's edge \u2014 same colour, same server, wherever it appears. */
+            <span
+              className="tree-conn-dot"
+              style={{ background: connectionColor(node.data) }}
+            />
+          ) : (
+            <span className="tree-icon">{getIcon(node.type)}</span>
+          )}
           {isRenaming ? (
             <input
               ref={renameInputRef}
@@ -435,17 +445,18 @@ function ObjectExplorer({ ctx }: Props) {
 
   return (
     <div className="object-explorer">
-      <div className="explorer-header">Object Explorer</div>
+      <div className="explorer-header">Explorer</div>
       <div className="explorer-tree">
         {tree.length === 0 ? (
           <div className="explorer-empty">
             No servers configured.<br />
-            Go to Server Manager to add one.
+            Go to Servers to add one.
           </div>
         ) : (
           tree.map((node) => renderNode(node))
         )}
       </div>
+      <div className="explorer-footer">Right-click an object for scripts and properties</div>
 
       {/* Context Menu */}
       {contextMenu && (

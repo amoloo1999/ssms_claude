@@ -9,18 +9,41 @@ interface Props {
   rows: any[][];
 }
 
+/**
+ * Decide whether a column reads as a figure.
+ *
+ * The handoff sets text in Inter and numbers in right-aligned tabular mono, so
+ * columns of figures line up on the decimal. The API hands back untyped rows,
+ * so the type is sampled from the data: up to 50 non-null values, all numeric.
+ */
+function isNumericColumn(rows: any[][], idx: number): boolean {
+  let seen = 0;
+  for (const row of rows) {
+    const v = row[idx];
+    if (v === null || v === undefined || v === '') continue;
+    if (typeof v !== 'number') return false;
+    if (++seen >= 50) break;
+  }
+  return seen > 0;
+}
+
 function ResultsGrid({ columns, rows }: Props) {
   const columnDefs = useMemo(
     () =>
-      columns.map((col, idx) => ({
-        headerName: col,
-        field: String(idx),
-        sortable: true,
-        filter: true,
-        resizable: true,
-        minWidth: 100,
-      })),
-    [columns]
+      columns.map((col, idx) => {
+        const numeric = isNumericColumn(rows, idx);
+        return {
+          headerName: col,
+          field: String(idx),
+          sortable: true,
+          filter: true,
+          resizable: true,
+          minWidth: 100,
+          cellClass: numeric ? 'cell-num' : 'cell-text',
+          headerClass: numeric ? 'header-num' : undefined,
+        };
+      }),
+    [columns, rows]
   );
 
   const rowData = useMemo(

@@ -3,54 +3,59 @@
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  background: var(--color-bg);
+  /* --conn-active is set inline by Layout.tsx from the active server's
+     colour; this is the fallback before a connection is picked. */
+  --conn-active: var(--color-neutral-700);
 }
 
-/* Top Bar */
+/* ── Top bar ─────────────────────────────────────────────────────────────── */
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 40px;
-  padding: 0 12px;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
+  height: var(--h-topbar);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
   flex-shrink: 0;
 }
 
 .topbar-left {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: var(--space-8);
 }
 
 .topbar-title {
-  font-weight: 600;
-  color: var(--text-bright);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 14px;
+  color: var(--color-text);
 }
 
 .topbar-tabs {
   display: flex;
-  gap: 2px;
+  gap: var(--space-1);
 }
 
 .tab-btn {
-  padding: 6px 14px;
+  padding: 5px 12px;
+  font-size: 12.5px;
   background: none;
   border: none;
-  color: var(--text-secondary);
-  border-bottom: 2px solid transparent;
-  transition: all 0.15s;
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-500);
+  transition: background 140ms ease-out, color 140ms ease-out;
 }
 
-.tab-btn:hover:not(:disabled) {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+.tab-btn:hover:not(:disabled):not(.active) {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
 }
 
 .tab-btn.active {
-  color: var(--text-bright);
-  border-bottom-color: var(--accent);
+  background: var(--color-accent-900);
+  color: var(--color-accent-300);
 }
 
 .tab-btn:disabled {
@@ -61,60 +66,96 @@
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-3);
 }
 
 .avatar {
   width: 24px;
   height: 24px;
   border-radius: 50%;
+  box-shadow: var(--shadow-sm);
 }
 
 .user-name {
-  color: var(--text-secondary);
   font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+/* ── Connection bar ──────────────────────────────────────────────────────── */
+.connbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--h-connbar);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+  flex-shrink: 0;
+  /* The safety edge — the active connection's colour, always in view. */
+  box-shadow: inset 3px 0 0 var(--conn-active);
+}
+
+.conn-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 2px 9px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  border: 1px solid color-mix(in srgb, var(--conn-active) 55%, transparent);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
 }
 
-.role-badge {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.conn-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--conn-active);
+  /* The glow is how the accent carries presence without a fill. */
+  box-shadow: 0 0 6px var(--conn-active);
+  flex-shrink: 0;
 }
 
-.role-badge.role-revman {
-  background: #0e7c3f;
-  color: white;
+.conn-policy {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: #d99b93;
 }
 
-.role-badge.role-user {
-  background: #555;
-  color: #ddd;
+.conn-policy-idle {
+  color: var(--color-neutral-600);
 }
 
-.logout-btn {
-  padding: 4px 10px;
-  background: none;
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  border-radius: 3px;
-  font-size: 12px;
+.conn-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--color-divider);
 }
 
-.logout-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+.conn-db {
+  padding: 2px 8px;
+  font-size: 11.5px;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  color: var(--color-neutral-300);
 }
 
-/* Main Content */
+.conn-dialect {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+.conn-session {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-neutral-500);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────── */
 .main-content {
   flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 .split-horizontal {
@@ -123,7 +164,8 @@
 }
 
 .gutter {
-  background-color: var(--border-color);
+  background: var(--color-divider);
+  transition: background 140ms ease-out;
 }
 
 /* Orientation-specific resize cursors. The blanket `col-resize` here was the
@@ -139,30 +181,36 @@
 }
 
 .gutter:hover {
-  background-color: var(--accent);
+  background: var(--color-accent);
 }
 
 .panel-left {
   overflow: auto;
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
+  background: var(--color-bg);
+  border-right: 1px solid var(--color-divider);
 }
 
 .panel-right {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
-/* Status Bar */
+/* ── Status bar ──────────────────────────────────────────────────────────── */
 .statusbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 24px;
-  padding: 0 12px;
-  background: var(--accent);
-  color: white;
-  font-size: 12px;
+  height: var(--h-statusbar);
+  padding: 0 var(--space-4);
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-accent);
   flex-shrink: 0;
+}
+
+.statusbar-right {
+  font-variant-numeric: tabular-nums;
 }

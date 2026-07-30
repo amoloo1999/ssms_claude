@@ -1,39 +1,183 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Nocturne — the token layer.
+
+   Ported from the design handoff's token sheet
+   (`_ds/nocturne-…/styles.css`). This file is the source of truth for every
+   colour, font, space, radius and shadow in the app: component CSS reads
+   `var(--color-*)` / `var(--space-*)` / `var(--radius-*)` and never hard-codes
+   a hex or a raw px the tokens already carry.
+
+   The legacy `--bg-*` / `--text-*` names the components were written against
+   are kept below as aliases onto the Nocturne roles, so anything not yet
+   hand-tuned still lands on the new palette instead of the old VS Code one.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
 :root {
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --bg-tertiary: #2d2d30;
-  --bg-hover: #37373d;
-  --bg-active: #094771;
-  --text-primary: #cccccc;
-  --text-secondary: #969696;
-  --text-bright: #ffffff;
-  --border-color: #3c3c3c;
-  --accent: #0078d4;
-  --accent-hover: #1a8ad4;
-  --success: #4ec9b0;
-  --error: #f44747;
-  --warning: #cca700;
-  --scrollbar-bg: #1e1e1e;
-  --scrollbar-thumb: #424242;
+  /* — core roles — */
+  --color-bg: #161826;
+  --color-surface: #232532;
+  --color-text: #e9e9ed;
+  --color-accent: #9184d9;
+  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+  /* — tonal ramps (OKLCH, one shared lightness scale) — */
+  --color-neutral-100: #f3f5fe;
+  --color-neutral-200: #e4e7f5;
+  --color-neutral-300: #cfd3e5;
+  --color-neutral-400: #b2b6ca;
+  --color-neutral-500: #9397ab;
+  --color-neutral-600: #75798c;
+  --color-neutral-700: #595d6c;
+  --color-neutral-800: #3f424d;
+  --color-neutral-900: #292b31;
+
+  --color-accent-100: #f5f4ff;
+  --color-accent-200: #e7e5fe;
+  --color-accent-300: #d2cefd;
+  --color-accent-400: #b5abfc;
+  --color-accent-500: #968ae0;
+  --color-accent-600: #796cbf;
+  --color-accent-700: #5d5294;
+  --color-accent-800: #423a6a;
+  --color-accent-900: #2b2741;
+
+  /* — semantic colours (handoff §Design tokens: app-level, not in the sheet) — */
+  --color-danger: #f26d5b;          /* production dot, destructive marks   */
+  --color-danger-border: #b3392b;
+  --color-danger-text: #ffb3b3;
+  --color-danger-tint: color-mix(in srgb, #ffb3b3 8%, transparent);
+  --color-positive: #aebf92;        /* positive delta, SQL literals        */
+  --color-warning-text: #f0dfa0;
+
+  /* Connection colours. One colour per connection paints its status-bar edge,
+     its tree dot and its tab accent — the handoff's "colour is a system, not
+     a decoration". Assigned in Layout.tsx by server kind. */
+  --conn-prod: #f26d5b;
+  --conn-warehouse: #8fa073;
+  --conn-sandbox: var(--color-accent);
+  --conn-external: #c9a227;
+
+  /* — type — */
+  --font-heading: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', monospace;
+  --font-heading-weight: 500;
+
+  /* — spacing (Nocturne density 0.70×; dense on purpose) — */
+  --space-1: 2.8px;
+  --space-2: 5.6px;
+  --space-3: 8.4px;
+  --space-4: 11.2px;
+  --space-6: 16.8px;
+  --space-8: 22.4px;
+
+  /* — radius — */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  /* — elevation: on a dark ground this is an edge plus ambient darkness.
+     Never stack these. — */
+  --shadow-sm: 0 0 0 1px #3f424d;
+  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, 0.65);
+
+  /* — chrome heights, so the shell rows stay in step across components — */
+  --h-topbar: 42px;
+  --h-connbar: 34px;
+  --h-statusbar: 26px;
+  --h-tabstrip: 30px;
+
+  /* ── legacy aliases ─────────────────────────────────────────────────────
+     The pre-refresh variable names, remapped onto Nocturne roles. Component
+     CSS is being migrated to the tokens above; until a file is converted its
+     `var(--bg-secondary)` etc. resolves here rather than to the old palette.
+     Prefer the Nocturne names in new code. */
+  --bg-primary: var(--color-bg);
+  --bg-secondary: var(--color-surface);
+  --bg-tertiary: var(--color-surface);
+  --bg-hover: color-mix(in srgb, var(--color-text) 7%, transparent);
+  --bg-active: var(--color-accent-900);
+  --text-primary: var(--color-text);
+  --text-secondary: var(--color-neutral-500);
+  --text-bright: var(--color-neutral-100);
+  --text-muted: var(--color-neutral-500);
+  --border-color: var(--color-divider);
+  --accent: var(--color-accent);
+  --accent-hover: var(--color-accent-400);
+  --success: var(--color-positive);
+  --error: var(--color-danger);
+  --warning: var(--color-warning-text);
+  --scrollbar-bg: transparent;
+  --scrollbar-thumb: var(--color-neutral-800);
 }
 
-* {
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   width: 100%;
   overflow: hidden;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-family: var(--font-body);
+  /* 13px is the handoff's chrome size; dense grids step down to 12.5px. */
   font-size: 13px;
-  color: var(--text-primary);
-  background-color: var(--bg-primary);
+  line-height: 1.55;
+  color: var(--color-text);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  /* Hierarchy here is size and space — never a heavier weight. */
+  font-weight: var(--font-heading-weight);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+}
+
+/* Every figure in the app is tabular so columns of numbers line up. */
+.mono,
+code,
+pre {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Section kickers and column headers share one treatment. */
+.kicker {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-neutral-500);
+}
+
+.text-muted {
+  color: var(--color-neutral-500);
 }
 
 ::-webkit-scrollbar {
@@ -46,26 +190,233 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
+  background: var(--color-neutral-800);
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: var(--color-neutral-700);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
 button {
   cursor: pointer;
   font-family: inherit;
   font-size: 13px;
+  color: inherit;
 }
 
-input, select, textarea {
+input,
+select,
+textarea {
   font-family: inherit;
   font-size: 13px;
+  color: var(--color-text);
+  caret-color: var(--color-accent);
 }
 
 a {
-  color: var(--accent);
+  color: var(--color-accent);
   text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+/* Focus is themed, never the browser default blue. */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ── shared component classes (from the Nocturne component layer) ───────────
+   Buttons are outlined, never filled — the accent is a line and a glow, not a
+   flood. Sizes here are the app's chrome scale, one step down from the
+   design-system defaults, which are tuned for marketing pages. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 12.5px;
+  line-height: 1.2;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 140ms ease-out, border-color 140ms ease-out;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.btn-primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.btn-secondary {
+  border-color: var(--color-divider);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+
+.btn-secondary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+/* The surface chip — export actions, filter scopes, suggestion pills. */
+.btn-chip {
+  background: var(--color-surface);
+  border-color: transparent;
+  color: var(--color-neutral-300);
+}
+
+.btn-chip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 12%, transparent);
+  color: var(--color-text);
+}
+
+.btn-ghost {
+  color: var(--color-accent);
+  padding-inline: var(--space-1);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.btn-danger {
+  color: var(--color-danger-text);
+  border-color: var(--color-danger-border);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+}
+
+.btn-block {
+  width: 100%;
+}
+
+/* A mono keyboard hint riding inside or beside a button. */
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-accent-300);
+  opacity: 0.85;
+}
+
+.input {
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  transition: border-color 140ms ease-out;
+}
+
+.input::placeholder {
+  color: var(--color-neutral-600);
+}
+
+.input:hover {
+  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+
+.input:focus-visible {
+  border-color: var(--color-accent);
+  outline-offset: 0;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.tag-accent {
+  background: var(--color-accent-800);
+  color: var(--color-accent-100);
+}
+
+.tag-neutral {
+  background: var(--color-neutral-800);
+  color: var(--color-neutral-100);
+}
+
+.tag-outline {
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+}
+
+.tag-danger {
+  border: 1px solid var(--color-danger-border);
+  color: var(--color-danger-text);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.card-kicker {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.card-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.card-body {
+  font-size: 12.5px;
+  opacity: 0.8;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-neutral-500);
 }
