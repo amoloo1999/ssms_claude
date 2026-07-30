@@ -1,50 +1,67 @@
 .login-page {
   display: flex;
   align-items: center;
-  justify-content: center;
   height: 100vh;
-  background: var(--bg-primary);
+  padding: 0 8vw;
+  background: var(--color-bg);
 }
 
-.login-card {
-  text-align: center;
-  padding: 48px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  min-width: 360px;
+/* Content hugs the left edge; the whitespace is deliberate, not a gap to fill. */
+.login-column {
+  width: 380px;
+  max-width: 100%;
 }
 
-.login-icon {
-  color: var(--accent);
-  margin-bottom: 16px;
+/* The short accent mark — solid, unlike the system's freestanding rules,
+   which fade at their ends. */
+.login-rule {
+  width: 88px;
+  height: 2px;
+  background: var(--color-accent);
+  margin-bottom: var(--space-6);
 }
 
-.login-card h1 {
-  color: var(--text-bright);
-  font-size: 24px;
-  margin-bottom: 8px;
+.login-wordmark {
+  font-size: 32px;
+  color: var(--color-text);
+  margin-bottom: var(--space-3);
 }
 
-.login-card p {
-  color: var(--text-secondary);
-  margin-bottom: 32px;
+.login-purpose {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-neutral-500);
+  margin-bottom: var(--space-8);
 }
 
 .login-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 24px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  color: var(--text-bright);
-  font-size: 14px;
-  text-decoration: none;
-  transition: background 0.15s;
+  justify-content: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-6);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 13px;
+  color: var(--color-accent);
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  transition: background 140ms ease-out;
 }
 
 .login-btn:hover {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.login-btn:active {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.login-note {
+  margin-top: var(--space-6);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--color-neutral-600);
 }

@@ -3,6 +3,7 @@ import { AppContext } from '../../App';
 import { createServer, updateServer, deleteServer, testConnection, getServers } from '../../services/api';
 import { Server, Dialect } from '../../types';
 import { VscAdd, VscEdit, VscTrash, VscDebugStart, VscCheck, VscClose } from 'react-icons/vsc';
+import { connectionColor, connectionEnv } from '../../utils/connectionColor';
 import './ServerManager.css';
 
 interface Props {
@@ -217,10 +218,10 @@ function ServerManager({ ctx }: Props) {
             </label>
           </div>
           <div className="form-actions">
-            <button className="btn-primary" onClick={handleSave} disabled={saving}>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
               <VscCheck /> {saving ? 'Saving...' : 'Save'}
             </button>
-            <button className="btn-secondary" onClick={() => setShowForm(false)}>
+            <button className="btn btn-secondary" onClick={() => setShowForm(false)}>
               <VscClose /> Cancel
             </button>
           </div>
@@ -235,10 +236,17 @@ function ServerManager({ ctx }: Props) {
           </div>
         ) : (
           ctx.servers.map((server) => (
-            <div key={server.id} className="sm-card">
+            <div
+              key={server.id}
+              className="sm-card"
+              /* Each connection's row carries its own colour on the left edge —
+                 the same colour it shows in the connection bar and the tree. */
+              style={{ boxShadow: `inset 4px 0 0 ${connectionColor(server)}` }}
+            >
               <div className="sm-card-info">
                 <div className="sm-card-name">
                   {server.name}
+                  <span className="tag tag-neutral">{connectionEnv(server).toLowerCase()}</span>
                   {server.from_config && <span className="sm-badge">shared</span>}
                 </div>
                 <div className="sm-card-details">

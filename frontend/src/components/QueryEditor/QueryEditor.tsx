@@ -3,11 +3,18 @@ import Editor from '@monaco-editor/react';
 import Split from 'react-split';
 import { AppContext } from '../../App';
 import { executeQuery, cancelQuery, exportData, getSchemaSnapshot, requestAccess } from '../../services/api';
-import ResultsGrid from '../ResultsGrid/ResultsGrid';
+import ResultsGrid, { CellRef } from '../ResultsGrid/ResultsGrid';
+import ResultsChart from '../ResultsChart/ResultsChart';
+import DataDiff from '../DataDiff/DataDiff';
+import CellInspector from '../CellInspector/CellInspector';
+import ExportDialog from '../ExportDialog/ExportDialog';
 import { QueryResult, MissingTable, Dialect } from '../../types';
 import { VscPlay, VscDebugStop, VscExport, VscSparkle, VscAdd, VscClose, VscCopy } from 'react-icons/vsc';
 import AIAssistant from '../AIAssistant/AIAssistant';
 import { quoteIdent as quoteIdentAlways } from '../../utils/sqlDialect';
+import { onAll } from '../../utils/actionBus';
+import { labelFor } from '../../utils/shortcuts';
+import { isUnscopedWrite } from '../../utils/settings';
 import './QueryEditor.css';
 
 interface Props {
@@ -134,6 +141,14 @@ function QueryEditor({ ctx }: Props) {
   const [running, setRunning] = useState(false);
   const [databases, setDatabases] = useState<string[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
+  /** Which results view is showing: the grid, a chart, or the diff. */
+  const [resultView, setResultView] = useState<'grid' | 'chart' | 'diff'>('grid');
+  const [inspected, setInspected] = useState<CellRef | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  /** Wall-clock ms since the running query started, for the progress state. */
+  const [elapsed, setElapsed] = useState(0);
+  const gridHandle = useRef<{ moveFocus: (delta: number) => void } | null>(null);
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const completionDisposableRef = useRef<{ dispose: () => void } | null>(null);
@@ -323,6 +338,17 @@ function QueryEditor({ ctx }: Props) {
   const handleExecute = async () => {
     if (!selectedServer || !selectedDb || !activeTab) return;
     if (running) return; // already running — Stop is shown instead
+
+    // Client-side guard: an UPDATE or DELETE with no WHERE clause is almost
+    // always a mistake. This is a convenience, not access control — the server
+    // is what actually decides whether this user may write at all.
+    if (ctx.settings.confirmWriteWithoutWhere && isUnscopedWrite(getActiveSQL())) {
+      const ok = window.confirm(
+        'This statement updates or deletes every row — it has no WHERE clause.\n\nRun it anyway?'
+      );
+      if (!ok) return;
+    }
+
     const queryId = newQueryId();
     const controller = new AbortController();
     queryIdRef.current = queryId;
@@ -402,6 +428,50 @@ function QueryEditor({ ctx }: Props) {
     handleExecuteRef.current = handleExecute;
   });
 
+  // Live elapsed counter for the running state. The server doesn't stream
+  // progress, so this is wall-clock time only — the UI says "elapsed", not
+  // "percent complete", because a percentage would be invented.
+  useEffect(() => {
+    if (!running) {
+      setElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const id = window.setInterval(() => setElapsed(Date.now() - started), 100);
+    return () => window.clearInterval(id);
+  }, [running]);
+
+  // Register the actions this component owns. The shell's key handler and the
+  // command palette both fire through the bus, so a binding and a palette entry
+  // are the same code path.
+  useEffect(() => {
+    return onAll({
+      execute: () => handleExecuteRef.current(),
+      'execute-selection': () => handleExecuteRef.current(),
+      cancel: () => {
+        if (running) handleStop();
+      },
+      'new-tab': () => addTab(),
+      'close-tab': () => activeTabId && closeTab(activeTabId),
+      'next-tab': () => cycleTab(1),
+      'prev-tab': () => cycleTab(-1),
+      'grid-tab': () => setResultView('grid'),
+      'chart-tab': () => setResultView('chart'),
+      'diff-tab': () => setResultView('diff'),
+      'inspect-cell': () => setInspectorOpen((v) => !v),
+      export: () => setExportOpen(true),
+      'ai-panel': () => setAiOpen((v) => !v),
+    });
+  }, [running, activeTabId, tabs.length]);
+
+  const cycleTab = (delta: number) => {
+    if (tabs.length < 2) return;
+    const i = tabs.findIndex((t) => t.id === activeTabId);
+    if (i === -1) return;
+    const next = (i + delta + tabs.length) % tabs.length;
+    setActiveTabId(tabs[next].id);
+  };
+
   const handleExport = async (format: 'csv' | 'xlsx') => {
     const queryToExport = getActiveSQL();
     if (!selectedServer || !selectedDb || !queryToExport) return;
@@ -441,6 +511,47 @@ function QueryEditor({ ctx }: Props) {
   const handleEditorMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+
+    // Monaco ships its own palette, so the editor is the one surface the CSS
+    // token layer can't reach. Mirror the Nocturne tokens here: keywords take
+    // the accent, literals the positive green, and the chrome (gutter,
+    // suggest widget, selection) matches the panels around it.
+    monaco.editor.defineTheme('nocturne', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'keyword', foreground: '9184d9' },
+        { token: 'keyword.sql', foreground: '9184d9' },
+        { token: 'predefined.sql', foreground: 'd2cefd' },
+        { token: 'operator.sql', foreground: '9397ab' },
+        { token: 'string', foreground: 'aebf92' },
+        { token: 'string.sql', foreground: 'aebf92' },
+        { token: 'number', foreground: 'aebf92' },
+        { token: 'comment', foreground: '75798c', fontStyle: 'italic' },
+        { token: 'identifier', foreground: 'e9e9ed' },
+      ],
+      colors: {
+        'editor.background': '#161826',
+        'editor.foreground': '#e9e9ed',
+        'editor.lineHighlightBackground': '#1c1f30',
+        'editor.selectionBackground': '#2b2741',
+        'editorCursor.foreground': '#9184d9',
+        'editorLineNumber.foreground': '#595d6c',
+        'editorLineNumber.activeForeground': '#9184d9',
+        'editorIndentGuide.background': '#292b31',
+        'editorWidget.background': '#232532',
+        'editorWidget.border': '#3f424d',
+        'editorSuggestWidget.background': '#232532',
+        'editorSuggestWidget.border': '#3f424d',
+        'editorSuggestWidget.selectedBackground': '#2b2741',
+        'editorSuggestWidget.highlightForeground': '#d2cefd',
+        'editorHoverWidget.background': '#232532',
+        'editorHoverWidget.border': '#3f424d',
+        'scrollbarSlider.background': '#3f424d99',
+        'scrollbarSlider.hoverBackground': '#595d6ccc',
+      },
+    });
+    monaco.editor.setTheme('nocturne');
 
     // Ctrl+Enter / Cmd+Enter — call through ref so it always sees the latest
     // handleExecute (avoids the original stale-closure bug).
@@ -745,6 +856,8 @@ function QueryEditor({ ctx }: Props) {
       ? [{ columns: result.columns, rows: result.rows, row_count: result.row_count }]
       : [];
   const activeSet = resultSets[activeResultTab] || resultSets[0];
+  const activeServerName =
+    ctx.servers.find((s) => s.id === selectedServer)?.name || 'the server';
 
   return (
     <div className="query-editor-wrap">
@@ -816,30 +929,27 @@ function QueryEditor({ ctx }: Props) {
                 <VscDebugStop /> Stop
               </button>
             ) : (
-              <button
-                className="execute-btn"
-                onClick={handleExecute}
-                disabled={!selectedServer || !selectedDb}
-              >
-                <VscPlay /> Execute
-              </button>
+              <>
+                <button
+                  className="execute-btn"
+                  onClick={handleExecute}
+                  disabled={!selectedServer || !selectedDb}
+                >
+                  <VscPlay /> Execute
+                </button>
+                <span className="kbd">⌘↵</span>
+              </>
             )}
           </div>
 
           <div className="toolbar-right">
             <button
               className="export-btn"
-              onClick={() => handleExport('csv')}
-              disabled={!result?.rows.length}
+              onClick={() => setExportOpen(true)}
+              disabled={!activeSet?.rows.length}
+              title={`Export results (${labelFor('export')})`}
             >
-              <VscExport /> CSV
-            </button>
-            <button
-              className="export-btn"
-              onClick={() => handleExport('xlsx')}
-              disabled={!result?.rows.length}
-            >
-              <VscExport /> Excel
+              <VscExport /> Export…
             </button>
             <button
               className="export-btn"
@@ -852,7 +962,7 @@ function QueryEditor({ ctx }: Props) {
             <button
               className="export-btn"
               onClick={() => setAiOpen((v) => !v)}
-              title="Toggle AI assistant"
+              title={`Toggle AI assistant (${labelFor('ai-panel')})`}
             >
               <VscSparkle /> AI
             </button>
@@ -873,28 +983,70 @@ function QueryEditor({ ctx }: Props) {
                 key={activeTab.id}
                 height="100%"
                 defaultLanguage="sql"
-                theme="vs-dark"
+                theme="nocturne"
                 value={activeTab.sql}
                 onChange={(v) => updateTab(activeTab.id, { sql: v || '' })}
                 onMount={handleEditorMount}
                 options={{
                   minimap: { enabled: false },
-                  fontSize: 14,
+                  fontFamily: "'JetBrains Mono', 'Cascadia Mono', Consolas, monospace",
+                  fontSize: ctx.settings.editorFontSize,
+                  // 1.8 line-height per the handoff's editor spec — SQL reads
+                  // as a list of clauses, not a wall.
+                  lineHeight: Math.round(ctx.settings.editorFontSize * 1.8),
                   lineNumbers: 'on',
+                  lineNumbersMinChars: 4,
+                  padding: { top: 10, bottom: 10 },
+                  renderLineHighlight: 'line',
                   scrollBeyondLastLine: false,
                   automaticLayout: true,
                   tabSize: 4,
-                  wordWrap: 'on',
-                  suggestOnTriggerCharacters: true,
-                  quickSuggestions: { other: true, comments: false, strings: false },
+                  wordWrap: ctx.settings.wordWrap ? 'on' : 'off',
+                  suggestOnTriggerCharacters: ctx.settings.autocomplete,
+                  quickSuggestions: ctx.settings.autocomplete
+                    ? { other: true, comments: false, strings: false }
+                    : false,
                 }}
               />
             )}
           </div>
 
           <div className="results-pane">
-            {result ? (
+            {running ? (
+              /* Running — handoff 4A/1. Wall-clock only; the server doesn't
+                 stream progress, so this is an indeterminate bar with a real
+                 elapsed counter rather than a fabricated percentage. */
+              <div className="rs">
+                <div className="rs-progress" />
+                <div className="rs-title">Executing on {activeServerName}</div>
+                <div className="rs-body">
+                  <span className="mono">{(elapsed / 1000).toFixed(1)}s</span> elapsed ·{' '}
+                  {selectedDb || 'no database'}
+                </div>
+                <div className="rs-actions">
+                  <button className="btn btn-danger" onClick={handleStop}>
+                    Cancel <span className="kbd">{labelFor('cancel')}</span>
+                  </button>
+                </div>
+                <div className="rs-note">Other tabs stay usable while this runs.</div>
+              </div>
+            ) : result ? (
               result.error ? (
+                result.error === 'Query cancelled.' ? (
+                  /* Cancelled — handoff 4A/2. */
+                  <div className="rs">
+                    <div className="rs-title">Query cancelled</div>
+                    <div className="rs-body">
+                      The statement was aborted on the server. Any open transaction
+                      was rolled back.
+                    </div>
+                    <div className="rs-actions">
+                      <button className="btn btn-primary" onClick={handleExecute}>
+                        Run again
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                 <div className="result-error">
                   <strong>Error:</strong> {result.error}
                   {activeTab?.missingTables && activeTab.missingTables.length > 0 && (
@@ -935,34 +1087,92 @@ function QueryEditor({ ctx }: Props) {
                     </button>
                   </div>
                 </div>
+                )
               ) : (
                 <>
-                  {resultSets.length > 1 && (
-                    <div className="result-tabs">
-                      {resultSets.map((rs, i) => (
+                  {/* View tabs — the grid, a chart of it, or a diff between
+                      result sets. */}
+                  <div className="result-tabs">
+                    {(['grid', 'chart', 'diff'] as const).map((v) => (
+                      <button
+                        key={v}
+                        className={`result-tab ${resultView === v ? 'active' : ''}`}
+                        onClick={() => setResultView(v)}
+                      >
+                        {v === 'grid' ? 'Grid' : v === 'chart' ? 'Chart' : 'Diff'}
+                      </button>
+                    ))}
+                    {resultSets.length > 1 &&
+                      resultSets.map((rs, i) => (
                         <button
-                          key={i}
-                          className={`result-tab ${i === activeResultTab ? 'active' : ''}`}
+                          key={`set-${i}`}
+                          className={`result-tab result-set-tab ${
+                            i === activeResultTab ? 'active' : ''
+                          }`}
                           onClick={() => updateTab(activeTab!.id, { activeResultTab: i })}
                         >
                           Result {i + 1} ({rs.row_count})
                         </button>
                       ))}
+                    <span className="result-meta mono">
+                      {(activeSet?.row_count ?? 0).toLocaleString()} rows ·{' '}
+                      {Math.round(result.execution_time_ms)} ms
+                    </span>
+                  </div>
+
+                  {activeSet && activeSet.rows.length === 0 ? (
+                    /* Empty — handoff 4A/3. The column headers stay visible so
+                       it's clear the query ran and simply matched nothing. */
+                    <div className="rs rs-empty">
+                      <div className="rs-columns mono">{activeSet.columns.join(' · ')}</div>
+                      <div className="rs-title">No rows matched</div>
+                      <div className="rs-body">
+                        The query ran successfully against {selectedDb} and returned
+                        no rows.
+                      </div>
+                      <div className="rs-actions">
+                        <button className="btn btn-secondary" onClick={() => setAiOpen(true)}>
+                          <VscSparkle /> Why is this empty?
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="result-body">
+                      {resultView === 'grid' && activeSet && (
+                        <>
+                          <ResultsGrid
+                            columns={activeSet.columns}
+                            rows={activeSet.rows}
+                            density={ctx.settings.density}
+                            nullDisplay={ctx.settings.nullDisplay}
+                            onCellFocus={setInspected}
+                            gridRef={gridHandle}
+                          />
+                          {inspectorOpen && inspected && (
+                            <CellInspector
+                              cell={inspected}
+                              onClose={() => setInspectorOpen(false)}
+                              onMove={(d) => gridHandle.current?.moveFocus(d)}
+                            />
+                          )}
+                        </>
+                      )}
+                      {resultView === 'chart' && activeSet && (
+                        <ResultsChart columns={activeSet.columns} rows={activeSet.rows} />
+                      )}
+                      {resultView === 'diff' && (
+                        <DataDiff
+                          sets={resultSets}
+                          hideIdentical={ctx.settings.hideIdenticalInDiff}
+                        />
+                      )}
                     </div>
                   )}
-                  <div className="result-stats">
-                    {activeSet?.row_count ?? 0} row(s)
-                    {resultSets.length > 1
-                      ? ` in result ${activeResultTab + 1} of ${resultSets.length}`
-                      : ''}{' '}
-                    — total {result.execution_time_ms}ms
-                  </div>
-                  {activeSet && <ResultsGrid columns={activeSet.columns} rows={activeSet.rows} />}
                 </>
               )
             ) : (
               <div className="result-placeholder">
-                Execute a query to see results here. Press Ctrl+Enter to run.
+                Execute a query to see results here. Press {labelFor('execute')} to run.
               </div>
             )}
           </div>
@@ -979,6 +1189,15 @@ function QueryEditor({ ctx }: Props) {
             if (activeTab) updateTab(activeTab.id, { sql: newSql });
             editorRef.current?.setValue?.(newSql);
           }}
+        />
+      )}
+      {exportOpen && (
+        <ExportDialog
+          sets={resultSets}
+          activeIndex={activeResultTab}
+          tableHint={ctx.activeTable ? `[${ctx.activeTable.schema}].[${ctx.activeTable.table}]` : undefined}
+          onServerExport={handleExport}
+          onClose={() => setExportOpen(false)}
         />
       )}
     </div>
