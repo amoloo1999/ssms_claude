@@ -7,7 +7,7 @@ import ShortcutsSheet from '../ShortcutsSheet/ShortcutsSheet';
 import SettingsDialog from '../Settings/SettingsDialog';
 import { resolve, isTypingTarget, labelFor } from '../../utils/shortcuts';
 import { emit } from '../../utils/actionBus';
-import ObjectExplorer from '../ObjectExplorer/ObjectExplorer';
+import ExplorerRail from '../ExplorerRail/ExplorerRail';
 import QueryEditor from '../QueryEditor/QueryEditor';
 import TableBrowser from '../TableBrowser/TableBrowser';
 import ServerManager from '../ServerManager/ServerManager';
@@ -208,7 +208,7 @@ function Layout({ ctx }: Props) {
           direction="horizontal"
         >
           <div className="panel-left">
-            <ObjectExplorer ctx={ctx} />
+            <ExplorerRail ctx={ctx} />
           </div>
 
           <div className="panel-right">

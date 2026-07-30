@@ -1,4 +1,14 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, UniqueConstraint, Index
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Text,
+    Float,
+    DateTime,
+    Boolean,
+    UniqueConstraint,
+    Index,
+)
 from sqlalchemy.sql import func
 from pydantic import BaseModel
 from typing import Optional, Literal
@@ -84,6 +94,51 @@ class AccessRequest(Base):
     decided_by = Column(String, nullable=True)
     decided_at = Column(DateTime, nullable=True)
     decision_note = Column(String, default="")
+
+
+class QueryHistory(Base):
+    """One row per execution, written after the permission check passes.
+
+    Scoped to the user who ran it and never shared: the SQL text names objects,
+    and showing one person's history to another would leak the existence and
+    shape of tables they have no grant for. Failed runs are kept — "what was
+    that query that errored yesterday" is most of why history is useful.
+    """
+
+    __tablename__ = "query_history"
+    __table_args__ = (
+        # The only query this table serves: a user's own runs, newest first.
+        Index("ix_query_history_user_time", "user_email", "started_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String, nullable=False)
+    server_id = Column(Integer, nullable=False)
+    server_name = Column(String, default="")
+    database = Column(String, default="")
+    sql = Column(Text, nullable=False)
+    status = Column(String, default="ok", nullable=False)  # ok | error
+    row_count = Column(Integer, default=0)
+    duration_ms = Column(Float, default=0)
+    error = Column(Text, nullable=True)
+    started_at = Column(DateTime, server_default=func.now())
+
+
+class Snippet(Base):
+    """A saved, optionally shared, named query."""
+
+    __tablename__ = "snippets"
+    __table_args__ = (Index("ix_snippet_owner", "owner_email"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_email = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    sql = Column(Text, nullable=False)
+    description = Column(String, default="")
+    is_shared = Column(Boolean, default=False, nullable=False)
+    use_count = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class User(Base):
@@ -292,3 +347,51 @@ class AccessRequestResponse(BaseModel):
 
 class AccessRequestDecision(BaseModel):
     note: str = ""
+
+
+# -- History / snippets --
+
+
+class QueryHistoryResponse(BaseModel):
+    id: int
+    server_id: int
+    server_name: str = ""
+    database: str = ""
+    sql: str
+    status: str
+    row_count: int = 0
+    duration_ms: float = 0
+    error: Optional[str] = None
+    started_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SnippetCreate(BaseModel):
+    name: str
+    sql: str
+    description: str = ""
+    is_shared: bool = False
+
+
+class SnippetUpdate(BaseModel):
+    name: Optional[str] = None
+    sql: Optional[str] = None
+    description: Optional[str] = None
+    is_shared: Optional[bool] = None
+
+
+class SnippetResponse(BaseModel):
+    id: int
+    owner_email: str
+    name: str
+    sql: str
+    description: str = ""
+    is_shared: bool = False
+    use_count: int = 0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

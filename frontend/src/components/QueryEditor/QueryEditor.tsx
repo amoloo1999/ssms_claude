@@ -9,7 +9,7 @@ import DataDiff from '../DataDiff/DataDiff';
 import CellInspector from '../CellInspector/CellInspector';
 import ExportDialog from '../ExportDialog/ExportDialog';
 import { QueryResult, MissingTable, Dialect } from '../../types';
-import { VscPlay, VscDebugStop, VscExport, VscSparkle, VscAdd, VscClose, VscCopy } from 'react-icons/vsc';
+import { VscPlay, VscDebugStop, VscExport, VscSparkle, VscAdd, VscClose, VscCopy, VscSave } from 'react-icons/vsc';
 import AIAssistant from '../AIAssistant/AIAssistant';
 import { quoteIdent as quoteIdentAlways } from '../../utils/sqlDialect';
 import { onAll } from '../../utils/actionBus';
@@ -470,6 +470,20 @@ function QueryEditor({ ctx }: Props) {
     if (i === -1) return;
     const next = (i + delta + tabs.length) % tabs.length;
     setActiveTabId(tabs[next].id);
+  };
+
+  const handleSaveSnippet = async () => {
+    const sql = getActiveSQL().trim() || activeTab?.sql?.trim();
+    if (!sql) return;
+    const name = window.prompt('Name this snippet:', activeTab?.title || 'Untitled query');
+    if (!name) return;
+    try {
+      const { createSnippet } = await import('../../services/api');
+      await createSnippet({ name, sql });
+      // The rail reloads its own list when opened, so nothing to refresh here.
+    } catch (err: any) {
+      alert('Could not save snippet: ' + (err.response?.data?.detail || err.message));
+    }
   };
 
   const handleExport = async (format: 'csv' | 'xlsx') => {
@@ -950,6 +964,14 @@ function QueryEditor({ ctx }: Props) {
               title={`Export results (${labelFor('export')})`}
             >
               <VscExport /> Export…
+            </button>
+            <button
+              className="export-btn"
+              onClick={handleSaveSnippet}
+              disabled={!activeTab?.sql?.trim()}
+              title="Save this query to the snippet library"
+            >
+              <VscSave /> Save snippet
             </button>
             <button
               className="export-btn"

@@ -159,6 +159,37 @@ export const createGrant = (data: {
 export const revokeGrant = (id: number) =>
   api.delete(`/api/permissions/grants/${id}`).then((r) => r.data);
 
+// ── History (per-user) ──
+
+export const getHistory = (search?: string, limit = 200) =>
+  api
+    .get('/api/history', { params: { ...(search ? { search } : {}), limit } })
+    .then((r) => r.data);
+
+export const clearHistory = () => api.delete('/api/history').then((r) => r.data);
+
+// ── Snippets ──
+
+export const getSnippets = () => api.get('/api/snippets').then((r) => r.data);
+
+export const createSnippet = (data: {
+  name: string;
+  sql: string;
+  description?: string;
+  is_shared?: boolean;
+}) => api.post('/api/snippets', data).then((r) => r.data);
+
+export const updateSnippet = (
+  id: number,
+  data: { name?: string; sql?: string; description?: string; is_shared?: boolean },
+) => api.put(`/api/snippets/${id}`, data).then((r) => r.data);
+
+export const deleteSnippet = (id: number) =>
+  api.delete(`/api/snippets/${id}`).then((r) => r.data);
+
+export const markSnippetUsed = (id: number) =>
+  api.post(`/api/snippets/${id}/used`).then((r) => r.data);
+
 // ── Export ──
 
 export const exportData = async (serverId: number, database: string, sql: string, format: string) => {
