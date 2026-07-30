@@ -20,6 +20,20 @@ APPROVER_EMAILS: frozenset[str] = frozenset({
     "wfan@williamwarren.com",
 })
 
+# Users exempt from a connection's read_only policy.
+#
+# A read_only connection (Aurora) refuses writes from everyone, RevMan
+# included — that is the point of it. These addresses are the named exception:
+# they may write even there. The exemption lifts the CONNECTION gate only, not
+# the role gate, so an address here that isn't also a RevMan still cannot write.
+#
+# Keep this list as short as it can be. Every entry is a person who can write to
+# a database the rest of the team is deliberately prevented from writing to, and
+# it is easy to forget an exemption is here once it has been added.
+WRITE_ANYWHERE_EMAILS: frozenset[str] = frozenset({
+    "cpj@williamwarren.com",
+})
+
 # External collaborators allowed past the ALLOWED_DOMAIN check. Deliberately
 # per-address, not per-domain: adding "getuniti.com" to ALLOWED_DOMAIN would let
 # any employee of that company log in. Guests get role='user' like any
@@ -42,6 +56,11 @@ def is_approver(email: str | None) -> bool:
 
 def is_guest(email: str | None) -> bool:
     return bool(email) and email.lower() in {e.lower() for e in GUEST_EMAILS}
+
+
+def can_write_anywhere(email: str | None) -> bool:
+    """Exempt from a connection's read_only policy. See WRITE_ANYWHERE_EMAILS."""
+    return bool(email) and email.lower() in {e.lower() for e in WRITE_ANYWHERE_EMAILS}
 
 
 class Settings(BaseSettings):

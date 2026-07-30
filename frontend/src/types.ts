@@ -11,6 +11,8 @@ export interface Server {
   kind: 'main' | 'gp';
   dialect: Dialect;
   database: string | null;
+  /** 'read_only' refuses writes from every user, RevMan included. */
+  write_policy: 'read_write' | 'read_only';
   created_at: string;
   updated_at: string | null;
 }
@@ -76,6 +78,8 @@ export interface User {
   picture: string;
   role: 'revman' | 'user';
   is_approver: boolean;
+  /** Exempt from a connection's read_only policy — may write even on Aurora. */
+  can_write_anywhere: boolean;
 }
 
 export interface MissingTable {

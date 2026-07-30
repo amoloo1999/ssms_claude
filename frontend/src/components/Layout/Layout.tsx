@@ -87,9 +87,23 @@ function Layout({ ctx }: Props) {
     ctx.servers.find((s) => s.id === ctx.activeQuery?.serverId) || null;
   const connColor = connectionColor(activeServer);
 
-  // Write policy is real state, not decoration — non-RevMan executions are
-  // rejected by the backend's denylist (services/permissions.py).
-  const writePolicy = isRevMan ? 'WRITES ALLOWED' : 'VIEW ONLY — WRITES BLOCKED';
+  // Write policy is real state, not decoration, and it has two independent
+  // sources: the connection's own policy (a read-only server refuses writes
+  // from everyone, RevMan included) and the caller's role. The connection wins,
+  // because that is the order the backend checks them in.
+  // A named exemption lifts the connection gate for specific people, so the bar
+  // has to tell THIS user what applies to them rather than showing everyone the
+  // same blanket message.
+  const exempt = !!ctx.user?.can_write_anywhere;
+  const serverReadOnly = activeServer?.write_policy === 'read_only';
+  const writePolicy =
+    serverReadOnly && !exempt
+      ? 'READ-ONLY CONNECTION — WRITES BLOCKED FOR ALL USERS'
+      : serverReadOnly && exempt
+      ? 'READ-ONLY CONNECTION — WRITES ALLOWED FOR YOU'
+      : isRevMan
+      ? 'WRITES ALLOWED'
+      : 'VIEW ONLY — WRITES BLOCKED';
 
   return (
     <div className="layout" style={{ ['--conn-active' as string]: connColor }}>

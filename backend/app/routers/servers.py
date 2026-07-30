@@ -94,7 +94,13 @@ async def update_server(
     server = result.scalar_one_or_none()
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
-    for key, value in update.model_dump(exclude_unset=True).items():
+
+    fields = update.model_dump(exclude_unset=True)
+    # write_policy is editable here even on config-managed servers: the seeder
+    # only overrides it when config.yaml names one explicitly, so setting it
+    # through the UI sticks. That keeps marking a connection read-only from
+    # requiring an edit to a credential-bearing file on the production box.
+    for key, value in fields.items():
         setattr(server, key, value)
 
     await db.commit()

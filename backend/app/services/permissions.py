@@ -14,7 +14,7 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.config import is_revman
+from app.config import can_write_anywhere, is_revman
 from app.models import ServerConnection, TablePermission
 
 
@@ -25,8 +25,32 @@ def can_access_server(user: dict, server: ServerConnection) -> bool:
     return (server.kind or "main") == "main"
 
 
-def can_write(user: dict) -> bool:
-    return is_revman(user.get("email", ""))
+def server_allows_writes(
+    server: ServerConnection | None, user: dict | None = None
+) -> bool:
+    """Whether this connection accepts writes from this caller.
+
+    A server marked ``read_only`` refuses writes for EVERYONE, RevMan included —
+    it is a property of the connection, not of the caller's role. The one
+    exception is the named exemption list in config (``WRITE_ANYWHERE_EMAILS``),
+    which lifts this gate for specific people.
+    """
+    if server is None:
+        return False
+    if (getattr(server, "write_policy", None) or "read_write") == "read_write":
+        return True
+    return bool(user) and can_write_anywhere(user.get("email", ""))
+
+
+def can_write(user: dict, server: ServerConnection | None = None) -> bool:
+    """Both must hold: the role permits writing, and the connection accepts it.
+
+    Note the exemption only lifts the connection gate — an exempt address that
+    is not also a RevMan still cannot write.
+    """
+    if not is_revman(user.get("email", "")):
+        return False
+    return server_allows_writes(server, user)
 
 
 async def get_user_grants(
@@ -183,14 +207,32 @@ async def check_query_permissions(
     database: str,
     sql: str,
     default_schema: str = "dbo",
+    write_policy: str = "read_write",
 ) -> tuple[bool, dict]:
-    """For non-RevMan users, validate a SQL string.
+    """Validate a SQL string before it is executed.
+
+    Two independent gates:
+
+    1. ``write_policy`` — a property of the connection. When the server is
+       read-only, writes are refused for everyone, RevMan included, except the
+       named addresses in ``WRITE_ANYWHERE_EMAILS``. This runs BEFORE the role
+       check, which is the whole point: it is not a role exemption.
+    2. The role. RevMan may write on a read_write server and skips the grant
+       check; everyone else is restricted to SELECT over their granted tables.
 
     Returns (allowed, error_payload). error_payload is shaped for the frontend
     to surface inline `Request access` buttons:
 
         {"detail": "...", "missing_tables": [{"server_id", "database", "schema", "table"}, ...]}
     """
+    if write_policy == "read_only" and not can_write_anywhere(user.get("email", "")):
+        ok, _ = is_select_only(sql)
+        if not ok:
+            return False, {
+                "detail": "This connection is read-only — writes are blocked for every user.",
+                "missing_tables": [],
+            }
+
     if is_revman(user.get("email", "")):
         return True, {}
 

@@ -48,7 +48,15 @@ async def seed_servers_from_config():
                     ServerConnection.from_config == True,
                 )
             )
-            if result.scalar_one_or_none():
+            existing = result.scalar_one_or_none()
+            if existing:
+                # Already seeded. Re-assert the write policy ONLY when config
+                # states one explicitly. Defaulting here instead would clobber a
+                # policy set through the UI back to read_write on every restart,
+                # which would mean the only way to mark a connection read-only
+                # was to edit this file on the production box.
+                if "write_policy" in server_cfg:
+                    existing.write_policy = server_cfg["write_policy"]
                 continue
 
             db.add(
@@ -62,6 +70,7 @@ async def seed_servers_from_config():
                     kind=server_cfg.get("kind", "main"),
                     dialect=dialect,
                     database=server_cfg.get("database"),
+                    write_policy=server_cfg.get("write_policy", "read_write"),
                     from_config=True,
                 )
             )
