@@ -433,6 +433,36 @@ function ConnectionSheet({
 
 /* ── Result detail ───────────────────────────────────────────────────────── */
 
+/**
+ * Export the rows already on screen — handoff 2J.
+ *
+ * Built from what's loaded rather than re-running server-side: the phone has
+ * the data, a second execution would double the load on production for no gain,
+ * and the export then matches exactly what the user is looking at.
+ *
+ * On iOS this hands the file to Safari's download sheet; on Android it saves
+ * normally. Either way the tab stays put.
+ */
+function exportCsv(title: string, columns: string[], rows: any[][]) {
+  const esc = (v: unknown) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const csv = [columns.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\n');
+  const name = (title || 'result').replace(/[^A-Za-z0-9-_]+/g, '_').slice(0, 40) || 'result';
+
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${name}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoke on the next tick — revoking synchronously can cancel the download
+  // before the browser has read the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function ResultView({
   title,
   sql,
@@ -564,6 +594,13 @@ function ResultView({
       <div className="mob-result-actions">
         <button className="mob-btn primary" onClick={run} disabled={running}>
           {running ? 'Running…' : 'Re-run'}
+        </button>
+        <button
+          className="mob-btn"
+          onClick={() => exportCsv(title, cols, rows)}
+          disabled={running || !!error || rows.length === 0}
+        >
+          Export CSV
         </button>
       </div>
     </div>
