@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_auth
-from app.config import get_settings, is_revman
+from app.config import get_scheduler_token, is_revman
 from app.database import get_db
 from app.models import (
     Schedule,
@@ -164,7 +164,7 @@ def _require_runner(token: str | None) -> None:
     holds. Refusing when the secret is unset is deliberate — an unset secret
     must fail closed, not open.
     """
-    expected = (get_settings().scheduler_token or "").strip()
+    expected = get_scheduler_token()
     if not expected:
         raise HTTPException(status_code=503, detail="Scheduler is not configured.")
     if not token or token != expected:
