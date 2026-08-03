@@ -236,6 +236,81 @@ async def get_table_columns(
     }
 
 
+@router.get(
+    "/servers/{server_id}/databases/{database}/tables/{schema_name}.{table_name}/foreign-keys"
+)
+async def get_foreign_keys(
+    server_id: int,
+    database: str,
+    schema_name: str,
+    table_name: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_auth),
+):
+    """Foreign keys touching this table, in both directions.
+
+    Feeds the schema diagram. Locked neighbours are deliberately still listed:
+    per the handoff, an object you cannot read stays VISIBLE so you can ask for
+    it in one click instead of filing a ticket. What's withheld is the content —
+    the diagram renders a locked entity without its columns. Only the FK
+    metadata (that a relationship exists, and on which column) crosses the wire,
+    never a row of data.
+    """
+    server = await _resolve_server(db, user, server_id)
+    # The focus table itself must be readable — otherwise this would map out a
+    # schema for someone with no grant on any of it.
+    if not is_revman(user.get("email", "")):
+        grants = await get_user_grants(db, user["email"])
+        if not grant_covers(grants, server_id, database, schema_name, table_name):
+            raise HTTPException(status_code=403, detail="No access to this table")
+
+    driver = get_driver(server.dialect)
+    if not driver.supports("foreign_keys"):
+        # The capability probe: engines without an implementation say so, and
+        # the UI hides the diagram rather than showing a control that errors.
+        return {"supported": False, "edges": [], "locked": []}
+
+    spec = driver.foreign_keys_sql(schema_name, table_name)
+    if spec is None:
+        return {"supported": False, "edges": [], "locked": []}
+
+    conn_str = await get_connection_string(db, server_id, database)
+    sql, params = spec
+    result = await execute_query_async(conn_str, sql, params)
+    if result["error"]:
+        return {"supported": True, "error": result["error"], "edges": [], "locked": []}
+
+    edges = [
+        {
+            "constraint": row[0],
+            "from_schema": row[1],
+            "from_table": row[2],
+            "from_column": row[3],
+            "to_schema": row[4],
+            "to_table": row[5],
+            "to_column": row[6],
+        }
+        for row in result["rows"]
+    ]
+
+    # Mark which neighbours the caller may actually read, so the diagram can
+    # render the rest at reduced opacity with a request-access affordance.
+    locked: list[dict] = []
+    if not is_revman(user.get("email", "")):
+        grants = await get_user_grants(db, user["email"])
+        seen: set[tuple[str, str]] = set()
+        for e in edges:
+            for sch, tbl in ((e["from_schema"], e["from_table"]), (e["to_schema"], e["to_table"])):
+                if (sch, tbl) in seen:
+                    continue
+                seen.add((sch, tbl))
+                if not grant_covers(grants, server_id, database, sch, tbl):
+                    locked.append({"schema": sch, "table": tbl})
+
+    return {"supported": True, "edges": edges, "locked": locked}
+
+
 @router.get("/servers/{server_id}/databases/{database}/tables/{schema_name}.{table_name}/indexes")
 async def get_table_indexes(
     server_id: int,

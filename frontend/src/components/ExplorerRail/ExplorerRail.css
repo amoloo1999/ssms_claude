@@ -1,0 +1,222 @@
+/* The left rail: Explorer / History / Snippets — handoff 2A and 3A. */
+
+.explorer-rail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-bg);
+}
+
+.rail-tabs {
+  display: flex;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-divider);
+  flex-shrink: 0;
+}
+
+.rail-tab {
+  padding: var(--space-3) 2px;
+  font-size: 11.5px;
+  color: var(--color-neutral-500);
+  background: none;
+  border: none;
+  transition: color 140ms ease-out;
+}
+
+.rail-tab:hover:not(.active) {
+  color: var(--color-neutral-300);
+}
+
+.rail-tab.active {
+  color: var(--color-accent-300);
+  box-shadow: inset 0 -1px 0 var(--color-accent);
+}
+
+.rail-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The tree stays mounted when another tab is showing, so expanded nodes and
+   fetched schema survive a tab switch. */
+.rail-body.hidden {
+  display: none;
+}
+
+/* ── Shared panel chrome ─────────────────────────────────────────────────── */
+.rail-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.rail-tools {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+  flex-shrink: 0;
+}
+
+.rail-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding-bottom: var(--space-3);
+}
+
+.rail-kicker {
+  padding: var(--space-4) var(--space-4) var(--space-1);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.rail-empty {
+  padding: var(--space-8) var(--space-4);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-neutral-600);
+}
+
+.rail-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  border-top: 1px solid var(--color-divider);
+  flex-shrink: 0;
+}
+
+.rail-link {
+  padding: 0;
+  font-size: 11px;
+  color: var(--color-accent-300);
+  background: none;
+  border: none;
+}
+
+.rail-link:hover {
+  color: var(--color-accent);
+}
+
+.rail-link.danger {
+  color: var(--color-danger-text);
+}
+
+/* ── History rows ────────────────────────────────────────────────────────── */
+.hist-row {
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  border-bottom: 1px solid var(--color-divider);
+  transition: background 140ms ease-out;
+}
+
+.hist-row:hover {
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+}
+
+.hist-row.selected {
+  background: var(--color-accent-900);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.hist-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.hist-time {
+  font-size: 10.5px;
+  color: var(--color-neutral-600);
+  flex-shrink: 0;
+}
+
+/* One line, always — a rail full of wrapped SQL is unscannable. */
+.hist-sql {
+  font-size: 11.5px;
+  color: var(--color-neutral-300);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.hist-meta {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--color-neutral-600);
+}
+
+.hist-conn {
+  font-weight: 500;
+}
+
+.hist-error {
+  color: var(--color-danger-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hist-actions {
+  margin-top: var(--space-2);
+}
+
+/* ── Snippet rows ────────────────────────────────────────────────────────── */
+.snip-row {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.snip-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.snip-name {
+  font-size: 12.5px;
+  color: var(--color-text);
+}
+
+.snip-sql {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--color-neutral-500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snip-desc {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+.snip-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: 10.5px;
+  color: var(--color-neutral-600);
+}
+
+.snip-actions {
+  display: flex;
+  gap: var(--space-3);
+}

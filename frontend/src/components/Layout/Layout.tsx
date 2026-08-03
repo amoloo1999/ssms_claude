@@ -6,22 +6,49 @@ import CommandPalette from '../CommandPalette/CommandPalette';
 import ShortcutsSheet from '../ShortcutsSheet/ShortcutsSheet';
 import SettingsDialog from '../Settings/SettingsDialog';
 import { resolve, isTypingTarget, labelFor } from '../../utils/shortcuts';
-import { emit } from '../../utils/actionBus';
-import ObjectExplorer from '../ObjectExplorer/ObjectExplorer';
+import { emit, onAll } from '../../utils/actionBus';
+import ExplorerRail from '../ExplorerRail/ExplorerRail';
 import QueryEditor from '../QueryEditor/QueryEditor';
 import TableBrowser from '../TableBrowser/TableBrowser';
+import SchemaDiagram from '../SchemaDiagram/SchemaDiagram';
 import ServerManager from '../ServerManager/ServerManager';
 import AdminPage from '../../pages/AdminPage';
 import MyAccessPage from '../../pages/MyAccessPage';
+import SessionsPage from '../../pages/SessionsPage';
+import SchedulesPage from '../../pages/SchedulesPage';
+import MobileShell from '../MobileShell/MobileShell';
+import AuditPage from '../../pages/AuditPage';
 import { connectionColor, connectionEnv } from '../../utils/connectionColor';
 import './Layout.css';
+import './Responsive.css';
 
 interface Props {
   ctx: AppContext;
 }
 
+/**
+ * Below this the desktop shell is replaced outright by the read-only mobile
+ * companion, rather than compressed. 768px is the handoff's boundary.
+ */
+const MOBILE_MAX = 767;
+
 function Layout({ ctx }: Props) {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth <= MOBILE_MAX
+  );
+
+  // Watched rather than read once: a tablet rotating between portrait and
+  // landscape crosses this boundary, and so does a resized desktop window.
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_MAX}px)`);
+    const onChange = (e: MediaQueryListEvent | MediaQueryList) => setIsMobile(e.matches);
+    onChange(mq);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -29,9 +56,21 @@ function Layout({ ctx }: Props) {
     getServers().then(ctx.setServers);
   }, []);
 
-  // The one global key handler. It owns the shell-level bindings and forwards
-  // everything else onto the action bus, where whichever component owns that
-  // action has registered for it.
+  // The shell's dialogs are registered on the action bus like everything else,
+  // so they can be opened from a keystroke, the palette, or a Monaco command
+  // (the editor swallows some chords before they reach window — see
+  // QueryEditor's editor-level bindings).
+  useEffect(
+    () =>
+      onAll({
+        palette: () => setPaletteOpen((v) => !v),
+        shortcuts: () => setShortcutsOpen((v) => !v),
+        settings: () => setSettingsOpen((v) => !v),
+      }),
+    []
+  );
+
+  // The one global key handler: resolve the binding, then fire it on the bus.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const id = resolve(e);
@@ -43,26 +82,11 @@ function Layout({ ctx }: Props) {
       const bareKey = !e.ctrlKey && !e.metaKey && !e.altKey;
       if (bareKey && isTypingTarget(e.target)) return;
 
-      // While a dialog is up, only let its own toggle through — otherwise
-      // Ctrl+K inside the palette's own input would re-enter here.
+      // While a dialog is up, only its own toggle gets through — otherwise
+      // Ctrl+K typed inside the palette's input would re-enter here.
       const dialogUp = paletteOpen || shortcutsOpen || settingsOpen;
-
-      if (id === 'palette') {
-        e.preventDefault();
-        setPaletteOpen((v) => !v);
-        return;
-      }
-      if (id === 'shortcuts') {
-        e.preventDefault();
-        setShortcutsOpen((v) => !v);
-        return;
-      }
-      if (id === 'settings') {
-        e.preventDefault();
-        setSettingsOpen((v) => !v);
-        return;
-      }
-      if (dialogUp) return;
+      const isDialogToggle = id === 'palette' || id === 'shortcuts' || id === 'settings';
+      if (dialogUp && !isDialogToggle) return;
 
       // Only swallow the keystroke when something is actually listening, so an
       // unhandled binding still reaches the browser.
@@ -105,11 +129,28 @@ function Layout({ ctx }: Props) {
       ? 'WRITES ALLOWED'
       : 'VIEW ONLY — WRITES BLOCKED';
 
+  // Below the mobile breakpoint the desktop shell is replaced outright rather
+  // than squeezed: no editor, no writes. See MobileShell.
+  if (isMobile) return <MobileShell ctx={ctx} />;
+
   return (
-    <div className="layout" style={{ ['--conn-active' as string]: connColor }}>
+    <div
+      className={`layout ${railOpen ? 'rail-open' : ''}`}
+      style={{ ['--conn-active' as string]: connColor }}
+    >
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
       <div className="topbar">
         <div className="topbar-left">
+          {/* Only rendered as a control below 1280px, where the explorer
+              becomes an overlay sheet. */}
+          <button
+            className="rail-toggle"
+            onClick={() => setRailOpen((v) => !v)}
+            title="Show or hide the explorer"
+            aria-label="Toggle explorer"
+          >
+            ☰
+          </button>
           <span className="topbar-title">SQL Studio</span>
           <nav className="topbar-tabs">
             <button
@@ -125,6 +166,14 @@ function Layout({ ctx }: Props) {
             >
               Table Browser
             </button>
+            <button
+              className={`tab-btn ${ctx.activeTab === 'diagram' ? 'active' : ''}`}
+              onClick={() => ctx.setActiveTab('diagram')}
+              disabled={!ctx.activeTable}
+              title={ctx.activeTable ? undefined : 'Pick a table in the explorer first'}
+            >
+              Schema
+            </button>
             {isRevMan && (
               <button
                 className={`tab-btn ${ctx.activeTab === 'schema' ? 'active' : ''}`}
@@ -139,6 +188,30 @@ function Layout({ ctx }: Props) {
                 onClick={() => ctx.setActiveTab('my-access')}
               >
                 My Access
+              </button>
+            )}
+            <button
+              className={`tab-btn ${ctx.activeTab === 'schedules' ? 'active' : ''}`}
+              onClick={() => ctx.setActiveTab('schedules')}
+            >
+              Schedules
+            </button>
+            {/* The session monitor shows other users' in-flight SQL, so it is
+                RevMan-only — enforced server-side, hidden here. */}
+            {isRevMan && (
+              <button
+                className={`tab-btn ${ctx.activeTab === 'sessions' ? 'active' : ''}`}
+                onClick={() => ctx.setActiveTab('sessions')}
+              >
+                Sessions
+              </button>
+            )}
+            {isApprover && (
+              <button
+                className={`tab-btn ${ctx.activeTab === 'audit' ? 'active' : ''}`}
+                onClick={() => ctx.setActiveTab('audit')}
+              >
+                Audit
               </button>
             )}
             {isApprover && (
@@ -199,6 +272,7 @@ function Layout({ ctx }: Props) {
       </div>
 
       {/* ── Body ────────────────────────────────────────────────────────── */}
+      {railOpen && <div className="rail-scrim" onClick={() => setRailOpen(false)} />}
       <div className="main-content">
         <Split
           className="split-horizontal"
@@ -208,12 +282,16 @@ function Layout({ ctx }: Props) {
           direction="horizontal"
         >
           <div className="panel-left">
-            <ObjectExplorer ctx={ctx} />
+            <ExplorerRail ctx={ctx} />
           </div>
 
           <div className="panel-right">
             {ctx.activeTab === 'query' && <QueryEditor ctx={ctx} />}
             {ctx.activeTab === 'table' && ctx.activeTable && <TableBrowser ctx={ctx} />}
+            {ctx.activeTab === 'diagram' && <SchemaDiagram ctx={ctx} />}
+            {ctx.activeTab === 'schedules' && <SchedulesPage ctx={ctx} />}
+            {ctx.activeTab === 'sessions' && isRevMan && <SessionsPage ctx={ctx} />}
+            {ctx.activeTab === 'audit' && isApprover && <AuditPage />}
             {ctx.activeTab === 'schema' && isRevMan && <ServerManager ctx={ctx} />}
             {ctx.activeTab === 'admin' && isApprover && <AdminPage ctx={ctx} />}
             {ctx.activeTab === 'my-access' && !isRevMan && <MyAccessPage ctx={ctx} />}

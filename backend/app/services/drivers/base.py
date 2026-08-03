@@ -57,6 +57,30 @@ class DatabaseDriver(ABC):
         return self.default_schema
 
     supports_cancel: bool = False
+
+    # ── optional capabilities ────────────────────────────────────────────────
+    #
+    # Features that are genuinely engine-specific (execution plans, foreign-key
+    # introspection) are declared here rather than assumed. A driver opts in by
+    # setting the flag AND implementing the matching method; everything else
+    # reports False and the UI hides the feature instead of showing a control
+    # that errors.
+    #
+    # This is what keeps a new capability from costing four implementations
+    # before it can ship: MSSQL covers PROD-MAIN and REPORTING-GP, and the other
+    # engines follow when someone actually needs them there.
+    supports_foreign_keys: bool = False
+    supports_execution_plan: bool = False
+    supports_session_monitor: bool = False
+
+    def supports(self, capability: str) -> bool:
+        """Whether this driver implements an optional capability.
+
+        Unknown capability names return False rather than raising: a caller
+        asking about something no driver has yet should get 'no', not a crash.
+        """
+        return bool(getattr(self, f"supports_{capability}", False))
+
     # True only for engines where one connection can query across databases
     # (SQL Server). Postgres/MySQL/Snowflake connect to a single database.
     cross_database_supported: bool = False
@@ -185,4 +209,58 @@ class DatabaseDriver(ABC):
         """(sql, params) → rows of
         (index_name, type_desc, is_unique 0/1, is_primary_key 0/1, columns_csv),
         or None for engines without queryable indexes (Snowflake)."""
+        return None
+
+    # ── optional: foreign keys (supports_foreign_keys) ───────────────────────
+
+    def foreign_keys_sql(self, schema: str, table: str) -> Optional[tuple[str, tuple]]:
+        """(sql, params) → rows of
+        (constraint_name,
+         parent_schema, parent_table, parent_column,
+         referenced_schema, referenced_table, referenced_column)
+
+        Both directions: constraints where the given table is the parent
+        (outgoing) and where it is the referenced table (incoming). The diagram
+        needs both to draw a table's neighbourhood.
+        """
+        return None
+
+    # ── optional: execution plan (supports_execution_plan) ───────────────────
+
+    def explain_statements(self, sql: str) -> Optional[tuple[str, str, str]]:
+        """(preamble, statement, epilogue) to capture a plan without running the
+        query for real, or None when unsupported.
+
+        Returned as three separate statements because SQL Server's SHOWPLAN
+        settings must be their own batch — they cannot share one with the
+        statement they apply to.
+        """
+        return None
+
+    # ── optional: session / lock monitor (supports_session_monitor) ──────────
+
+    def sessions_sql(self) -> Optional[str]:
+        """SQL returning one row per session:
+        (session_id, login_name, host_name, program_name, database_name,
+         status, blocked_by, wait_type, elapsed_ms, open_transactions,
+         current_statement)
+
+        ``blocked_by`` is 0/NULL when the session is not blocked.
+        """
+        return None
+
+    def kill_session_sql(self, session_id: int) -> Optional[str]:
+        """Statement that terminates a session. Returns None when unsupported.
+
+        Deliberately takes an int rather than a string — this value is
+        interpolated into SQL, and the caller coercing it to an integer is what
+        keeps it from being an injection point.
+        """
+        return None
+
+    def parse_plan(self, raw: str) -> Optional[dict]:
+        """Turn whatever ``explain_statements`` produced into
+        ``{"nodes": [{depth, operator, detail, cost_pct, rows, ...}],
+           "warnings": [...], "missing_indexes": [...]}``.
+        """
         return None

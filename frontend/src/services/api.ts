@@ -69,6 +69,27 @@ export const executeQuery = (
     )
     .then((r) => r.data);
 
+/**
+ * Estimated execution plan. Does not run the statement — the server returns the
+ * plan instead of executing it.
+ */
+export const getQueryPlan = (serverId: number, database: string, sql: string) =>
+  api
+    .post('/api/query/plan', { server_id: serverId, database, sql })
+    .then((r) => r.data);
+
+export const getForeignKeys = (
+  serverId: number,
+  database: string,
+  schema: string,
+  table: string,
+) =>
+  api
+    .get(
+      `/api/explorer/servers/${serverId}/databases/${database}/tables/${schema}.${table}/foreign-keys`,
+    )
+    .then((r) => r.data);
+
 // Ask the server to abort an in-flight query by its client-generated id.
 export const cancelQuery = (queryId: string) =>
   api.post('/api/query/cancel', { query_id: queryId }).then((r) => r.data);
@@ -158,6 +179,66 @@ export const createGrant = (data: {
 }) => api.post('/api/permissions/grants', data).then((r) => r.data);
 export const revokeGrant = (id: number) =>
   api.delete(`/api/permissions/grants/${id}`).then((r) => r.data);
+
+// ── History (per-user) ──
+
+export const getHistory = (search?: string, limit = 200) =>
+  api
+    .get('/api/history', { params: { ...(search ? { search } : {}), limit } })
+    .then((r) => r.data);
+
+export const clearHistory = () => api.delete('/api/history').then((r) => r.data);
+
+// ── Snippets ──
+
+export const getSnippets = () => api.get('/api/snippets').then((r) => r.data);
+
+export const createSnippet = (data: {
+  name: string;
+  sql: string;
+  description?: string;
+  is_shared?: boolean;
+}) => api.post('/api/snippets', data).then((r) => r.data);
+
+export const updateSnippet = (
+  id: number,
+  data: { name?: string; sql?: string; description?: string; is_shared?: boolean },
+) => api.put(`/api/snippets/${id}`, data).then((r) => r.data);
+
+export const deleteSnippet = (id: number) =>
+  api.delete(`/api/snippets/${id}`).then((r) => r.data);
+
+export const markSnippetUsed = (id: number) =>
+  api.post(`/api/snippets/${id}/used`).then((r) => r.data);
+
+// ── Operations (sessions / kill / audit) ──
+
+export const getSessions = (serverId: number) =>
+  api.get(`/api/ops/servers/${serverId}/sessions`).then((r) => r.data);
+
+export const killSession = (serverId: number, sessionId: number, reason: string) =>
+  api
+    .post('/api/ops/kill', { server_id: serverId, session_id: sessionId, reason })
+    .then((r) => r.data);
+
+export const getAudit = (params?: { event_type?: string; search?: string }) =>
+  api.get('/api/ops/audit', { params: params || {} }).then((r) => r.data);
+
+// ── Schedules ──
+
+export const getSchedules = () => api.get('/api/schedules').then((r) => r.data);
+
+export const createSchedule = (data: any) =>
+  api.post('/api/schedules', data).then((r) => r.data);
+
+export const updateSchedule = (id: number, data: any) =>
+  api.put(`/api/schedules/${id}`, data).then((r) => r.data);
+
+export const deleteSchedule = (id: number) =>
+  api.delete(`/api/schedules/${id}`).then((r) => r.data);
+
+export const getScheduleRuns = (id: number) =>
+  api.get(`/api/schedules/${id}/runs`).then((r) => r.data);
 
 // ── Export ──
 

@@ -273,7 +273,10 @@
 
 .result-body > .results-grid,
 .result-body > .chart,
-.result-body > .diff {
+.result-body > .plan,
+.result-body > .diff,
+.result-body > .plan-empty,
+.result-body > .plan-error {
   flex: 1;
   min-width: 0;
 }

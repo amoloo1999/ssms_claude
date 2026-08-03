@@ -1,0 +1,187 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Responsive — handoff screens 3C (tablet) and 2J (mobile).
+
+   Three bands:
+     ≥1280px  the full three-column desktop, untouched by this file
+     1024px   tablet: explorer becomes an overlay sheet, AI becomes a bottom
+              drawer, touch targets grow to 44px
+     <768px   the read-only mobile companion, in MobileShell.tsx
+
+   The tablet rules live here rather than in each component's stylesheet
+   because they are one coherent layout change, and splitting them across seven
+   files would make the layout impossible to reason about.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── Base ────────────────────────────────────────────────────────────────
+   These must come BEFORE the media queries. `.rail-toggle { display: none }`
+   and the tablet rule that shows it are the same specificity, so whichever is
+   written last wins — with the base rule below, the toggle stayed hidden at
+   1024px and the explorer was unreachable on a tablet. */
+
+.rail-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-right: var(--space-2);
+  font-size: 14px;
+  color: var(--color-neutral-300);
+  background: none;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+}
+
+.rail-toggle:hover {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+.rail-scrim {
+  display: none;
+}
+
+/* ── Tablet: 1024–1279 ───────────────────────────────────────────────────── */
+@media (max-width: 1279px) {
+  /* The explorer stops holding a column and slides over the content instead.
+     react-split sets an inline width on the panel, so the override has to be
+     !important — the alternative is not rendering Split below this width,
+     which would remount the whole tree on every resize across the boundary. */
+  .layout .split-horizontal > .panel-left {
+    position: fixed;
+    top: calc(var(--h-topbar) + var(--h-connbar));
+    bottom: var(--h-statusbar);
+    left: 0;
+    z-index: 900;
+    width: 320px !important;
+    transform: translateX(-100%);
+    transition: transform 160ms ease-out;
+    box-shadow: var(--shadow-md);
+  }
+
+  .layout.rail-open .split-horizontal > .panel-left {
+    transform: translateX(0);
+  }
+
+  .layout .split-horizontal > .panel-right {
+    width: 100% !important;
+  }
+
+  /* The gutter has nothing to drag when the rail is an overlay. */
+  .layout .split-horizontal > .gutter {
+    display: none;
+  }
+
+  .rail-toggle {
+    display: inline-flex;
+  }
+
+  /* Backdrop so tapping outside the sheet closes it. */
+  .rail-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 899;
+    background: color-mix(in srgb, var(--color-neutral-900) 55%, transparent);
+  }
+
+  /* Touch targets. 44px is the handoff's floor and the usual accessibility
+     minimum for a finger. */
+  .query-toolbar .execute-btn,
+  .query-toolbar .stop-btn,
+  .query-toolbar .export-btn,
+  .query-toolbar .db-select {
+    min-height: 44px;
+  }
+
+  .tab-btn {
+    min-height: 40px;
+  }
+
+  /* The AI panel stops being a column and becomes a bottom drawer. */
+  .query-editor-wrap .ai-assistant {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--h-statusbar);
+    z-index: 800;
+    width: 100%;
+    height: 55vh;
+    border-left: none;
+    border-top: 1px solid var(--color-accent);
+    box-shadow: var(--shadow-md);
+  }
+
+  /* Chrome that only earns its space on a wide screen. At 1024 the nav alone
+     is eight items; leaving the search chip, the user's name and the session
+     count in wrapped the whole top bar onto two lines. */
+  .topbar-search,
+  .user-name,
+  .conn-session {
+    display: none;
+  }
+
+  .topbar {
+    gap: var(--space-3);
+  }
+
+  .topbar-left {
+    gap: var(--space-3);
+    /* min-width:0 lets the nav actually shrink inside the flex row instead of
+       forcing the bar wider than the viewport. */
+    min-width: 0;
+    flex: 1;
+  }
+
+  /* The nav scrolls sideways rather than wrapping — a two-line top bar pushes
+     everything below it down and looks broken. */
+  .topbar-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .topbar-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab-btn,
+  .topbar-title {
+    white-space: nowrap;
+  }
+
+  .tab-btn {
+    padding-inline: var(--space-3);
+  }
+
+  .topbar-right {
+    flex-shrink: 0;
+  }
+
+  .topbar-right .btn {
+    white-space: nowrap;
+  }
+}
+
+/* ── Narrow tablet / large phone: drop to a single column ────────────────── */
+@media (max-width: 1023px) {
+  .sched-split,
+  .diagram-stage {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-row,
+  .audit-row,
+  .sched-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  /* A header row of stacked labels is noise once the cells stack. */
+  .ops-row.ops-head {
+    display: none;
+  }
+
+  .ops-num {
+    text-align: left;
+  }
+}

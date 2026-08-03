@@ -14,6 +14,19 @@ import pyodbc
 
 from app.services.drivers.base import DatabaseDriver
 
+
+def _num(value: Optional[str]) -> float:
+    """SHOWPLAN attributes are strings and frequently absent."""
+    try:
+        return float(value) if value is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _pct(value: Optional[str]) -> float:
+    """Placeholder until the second pass computes the share of total cost."""
+    return _num(value)
+
 # Match `GO` on its own line (optional whitespace, optional repeat count) — the
 # T-SQL batch separator. SSMS treats this as a client-side directive; pyodbc
 # does not understand it, so we split user SQL on these markers ourselves.
@@ -29,6 +42,11 @@ class MssqlDriver(DatabaseDriver):
     supports_cancel = True
     cross_database_supported = True
     single_database = False
+    # SQL Server is the first engine to get these; the other drivers inherit
+    # the base class's False and the UI hides the feature there.
+    supports_foreign_keys = True
+    supports_execution_plan = True
+    supports_session_monitor = True
 
     # ── connection lifecycle ─────────────────────────────────────────────────
     def build_connection_string(
@@ -204,3 +222,169 @@ class MssqlDriver(DatabaseDriver):
         ORDER BY i.name
         """
         return sql, (schema, table)
+
+    # ── foreign keys ─────────────────────────────────────────────────────────
+
+    def foreign_keys_sql(self, schema: str, table: str) -> Optional[tuple[str, tuple]]:
+        """Both directions in one query.
+
+        The UNION's second arm finds constraints pointing AT this table, which
+        is what makes the diagram show a table's whole neighbourhood rather than
+        only what it references.
+        """
+        sql = """
+        SELECT
+            fk.name              AS constraint_name,
+            ps.name              AS parent_schema,
+            pt.name              AS parent_table,
+            pc.name              AS parent_column,
+            rs.name              AS referenced_schema,
+            rt.name              AS referenced_table,
+            rc.name              AS referenced_column
+        FROM sys.foreign_keys fk
+        JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+        JOIN sys.tables  pt ON fk.parent_object_id = pt.object_id
+        JOIN sys.schemas ps ON pt.schema_id = ps.schema_id
+        JOIN sys.columns pc ON pc.object_id = pt.object_id AND pc.column_id = fkc.parent_column_id
+        JOIN sys.tables  rt ON fk.referenced_object_id = rt.object_id
+        JOIN sys.schemas rs ON rt.schema_id = rs.schema_id
+        JOIN sys.columns rc ON rc.object_id = rt.object_id AND rc.column_id = fkc.referenced_column_id
+        WHERE (ps.name = ? AND pt.name = ?)
+           OR (rs.name = ? AND rt.name = ?)
+        ORDER BY fk.name
+        """
+        return sql, (schema, table, schema, table)
+
+    # ── session / lock monitor ───────────────────────────────────────────────
+
+    def sessions_sql(self) -> Optional[str]:
+        """One row per user session, with the statement currently in flight.
+
+        Left joins to dm_exec_requests because most sessions are idle and have
+        no request; an inner join would show only the busy ones and hide the
+        idle-with-open-transaction case, which is exactly the one worth seeing.
+        """
+        return """
+        SELECT
+            s.session_id,
+            s.login_name,
+            s.host_name,
+            s.program_name,
+            DB_NAME(COALESCE(r.database_id, s.database_id))  AS database_name,
+            COALESCE(r.status, s.status)                     AS status,
+            COALESCE(r.blocking_session_id, 0)               AS blocked_by,
+            COALESCE(r.wait_type, '')                        AS wait_type,
+            COALESCE(r.total_elapsed_time, 0)                AS elapsed_ms,
+            s.open_transaction_count                         AS open_transactions,
+            SUBSTRING(
+                t.text,
+                (COALESCE(r.statement_start_offset, 0) / 2) + 1,
+                CASE COALESCE(r.statement_end_offset, -1)
+                    WHEN -1 THEN DATALENGTH(t.text)
+                    ELSE (r.statement_end_offset - r.statement_start_offset) / 2 + 1
+                END
+            )                                                AS current_statement
+        FROM sys.dm_exec_sessions s
+        LEFT JOIN sys.dm_exec_requests r ON r.session_id = s.session_id
+        OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) t
+        WHERE s.is_user_process = 1
+        ORDER BY
+            CASE WHEN COALESCE(r.blocking_session_id, 0) <> 0 THEN 0 ELSE 1 END,
+            r.total_elapsed_time DESC
+        """
+
+    def kill_session_sql(self, session_id: int) -> Optional[str]:
+        # KILL takes no parameters, so the id is coerced to int by the caller
+        # and formatted here — that coercion is what keeps this safe.
+        return f"KILL {int(session_id)}"
+
+    # ── execution plan ───────────────────────────────────────────────────────
+
+    def explain_statements(self, sql: str) -> Optional[tuple[str, str, str]]:
+        """Estimated plan via SHOWPLAN_XML.
+
+        SHOWPLAN_XML makes the server RETURN the plan instead of executing the
+        statement, which is what makes this safe to run against production: the
+        query never touches a row. The SET statements must be their own batches.
+        """
+        return ("SET SHOWPLAN_XML ON", sql, "SET SHOWPLAN_XML OFF")
+
+    def parse_plan(self, raw: str) -> Optional[dict]:
+        """Flatten SHOWPLAN_XML into the operator tree the UI draws."""
+        if not raw:
+            return None
+        try:
+            import xml.etree.ElementTree as ET
+
+            root = ET.fromstring(raw)
+        except Exception:
+            return None
+
+        # SHOWPLAN_XML is namespaced; strip it so the walk stays readable.
+        def tag(el) -> str:
+            return el.tag.split("}")[-1]
+
+        nodes: list[dict] = []
+        warnings: list[str] = []
+        missing: list[dict] = []
+
+        def walk(el, depth: int) -> None:
+            for child in el:
+                name = tag(child)
+                if name == "RelOp":
+                    a = child.attrib
+                    nodes.append(
+                        {
+                            "depth": depth,
+                            "operator": a.get("PhysicalOp", "?"),
+                            "detail": a.get("LogicalOp", ""),
+                            # The operator's OWN cost, which is what SSMS shows
+                            # as "Cost: N%". EstimatedTotalSubtreeCost is
+                            # cumulative, so using it would make the root
+                            # operator 100% on every plan and the highlight
+                            # would always land on the same node.
+                            "own_cost": _num(a.get("EstimateIO")) + _num(a.get("EstimateCPU")),
+                            "rows": _num(a.get("EstimateRows")),
+                        }
+                    )
+                    walk(child, depth + 1)
+                    continue
+                if name == "Warnings":
+                    for w in child:
+                        wa = w.attrib
+                        if wa.get("ConvertIssue"):
+                            warnings.append(f"Implicit conversion: {wa['ConvertIssue']}")
+                        elif wa.get("NoJoinPredicate"):
+                            warnings.append("No join predicate")
+                        else:
+                            warnings.append(tag(w))
+                elif name == "MissingIndexGroup":
+                    for mi in child.iter():
+                        if tag(mi) == "MissingIndex":
+                            missing.append(
+                                {
+                                    "database": mi.attrib.get("Database", ""),
+                                    "schema": mi.attrib.get("Schema", ""),
+                                    "table": mi.attrib.get("Table", ""),
+                                    "impact": _num(child.attrib.get("Impact")),
+                                    "columns": [
+                                        c.attrib.get("Name", "")
+                                        for c in mi.iter()
+                                        if tag(c) == "Column"
+                                    ],
+                                }
+                            )
+                walk(child, depth)
+
+        walk(root, 0)
+        if not nodes:
+            return None
+
+        # Each operator's share of the plan's total cost — the number that
+        # actually points at where the time goes.
+        total = sum(n["own_cost"] for n in nodes) or 1
+        for n in nodes:
+            n["cost_pct"] = round((n["own_cost"] / total) * 100, 1)
+            n.pop("own_cost", None)
+
+        return {"nodes": nodes, "warnings": warnings, "missing_indexes": missing}

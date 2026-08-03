@@ -1,4 +1,14 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, UniqueConstraint, Index
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Text,
+    Float,
+    DateTime,
+    Boolean,
+    UniqueConstraint,
+    Index,
+)
 from sqlalchemy.sql import func
 from pydantic import BaseModel
 from typing import Optional, Literal
@@ -84,6 +94,133 @@ class AccessRequest(Base):
     decided_by = Column(String, nullable=True)
     decided_at = Column(DateTime, nullable=True)
     decision_note = Column(String, default="")
+
+
+class QueryHistory(Base):
+    """One row per execution, written after the permission check passes.
+
+    Scoped to the user who ran it and never shared: the SQL text names objects,
+    and showing one person's history to another would leak the existence and
+    shape of tables they have no grant for. Failed runs are kept — "what was
+    that query that errored yesterday" is most of why history is useful.
+    """
+
+    __tablename__ = "query_history"
+    __table_args__ = (
+        # The only query this table serves: a user's own runs, newest first.
+        Index("ix_query_history_user_time", "user_email", "started_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String, nullable=False)
+    server_id = Column(Integer, nullable=False)
+    server_name = Column(String, default="")
+    database = Column(String, default="")
+    sql = Column(Text, nullable=False)
+    status = Column(String, default="ok", nullable=False)  # ok | error
+    row_count = Column(Integer, default=0)
+    duration_ms = Column(Float, default=0)
+    error = Column(Text, nullable=True)
+    started_at = Column(DateTime, server_default=func.now())
+
+
+class Snippet(Base):
+    """A saved, optionally shared, named query."""
+
+    __tablename__ = "snippets"
+    __table_args__ = (Index("ix_snippet_owner", "owner_email"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_email = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    sql = Column(Text, nullable=False)
+    description = Column(String, default="")
+    is_shared = Column(Boolean, default=False, nullable=False)
+    use_count = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class Schedule(Base):
+    """A saved query that runs on a cadence.
+
+    Definitions live here because the UI edits them; EXECUTION lives in Airflow,
+    which already has SMTP and failure alerting and — unlike this app — is not
+    restarted by every deploy.
+
+    ``owner_email`` is load-bearing: a schedule runs as its owner and is
+    permission-checked as its owner on every run. If their access is revoked,
+    the run pauses rather than failing silently or, worse, continuing to read
+    something they are no longer allowed to see.
+    """
+
+    __tablename__ = "schedules"
+    __table_args__ = (Index("ix_schedule_owner", "owner_email"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    owner_email = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    server_id = Column(Integer, nullable=False)
+    database = Column(String, default="")
+    sql = Column(Text, nullable=False)
+    # Cron-ish cadence, interpreted by the Airflow DAG.
+    cadence = Column(String, default="0 7 * * *", nullable=False)
+    timezone = Column(String, default="America/Los_Angeles", nullable=False)
+    # Alert when this holds. Only a small, closed set is accepted — see
+    # services/schedules.evaluate_condition.
+    alert_condition = Column(String, default="")
+    notify_emails = Column(String, default="")  # comma-separated
+    attach_csv = Column(Boolean, default=True, nullable=False)
+    state = Column(String, default="active", nullable=False)  # active | paused
+    paused_reason = Column(String, default="")
+    last_run_at = Column(DateTime, nullable=True)
+    last_result = Column(String, default="")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ScheduleRun(Base):
+    """One row per execution attempt, for the sparkline and the run log."""
+
+    __tablename__ = "schedule_runs"
+    __table_args__ = (Index("ix_schedule_run", "schedule_id", "started_at"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    schedule_id = Column(Integer, nullable=False)
+    started_at = Column(DateTime, server_default=func.now())
+    status = Column(String, default="ok", nullable=False)  # ok | error | paused
+    row_count = Column(Integer, default=0)
+    duration_ms = Column(Float, default=0)
+    alerted = Column(Boolean, default=False, nullable=False)
+    error = Column(Text, nullable=True)
+
+
+class AuditEvent(Base):
+    """An append-only record of consequential actions.
+
+    Only ever inserted, never updated or deleted through the API — an audit log
+    an actor can edit is not an audit log. ``actor`` is a string rather than a
+    user id because not every actor is a person: a scheduled query records
+    itself as its owner with actor_kind='schedule'.
+    """
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_at", "at"),
+        Index("ix_audit_type", "event_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    at = Column(DateTime, server_default=func.now())
+    actor = Column(String, nullable=False)
+    actor_kind = Column(String, default="user", nullable=False)  # user | schedule
+    event_type = Column(String, nullable=False)  # write | export | grant | deny | kill | denied
+    server_id = Column(Integer, nullable=True)
+    server_name = Column(String, default="")
+    database = Column(String, default="")
+    detail = Column(Text, default="")
+    reason = Column(Text, default="")
+    result = Column(String, default="ok")
 
 
 class User(Base):
@@ -292,3 +429,136 @@ class AccessRequestResponse(BaseModel):
 
 class AccessRequestDecision(BaseModel):
     note: str = ""
+
+
+# -- History / snippets --
+
+
+class QueryHistoryResponse(BaseModel):
+    id: int
+    server_id: int
+    server_name: str = ""
+    database: str = ""
+    sql: str
+    status: str
+    row_count: int = 0
+    duration_ms: float = 0
+    error: Optional[str] = None
+    started_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SnippetCreate(BaseModel):
+    name: str
+    sql: str
+    description: str = ""
+    is_shared: bool = False
+
+
+class SnippetUpdate(BaseModel):
+    name: Optional[str] = None
+    sql: Optional[str] = None
+    description: Optional[str] = None
+    is_shared: Optional[bool] = None
+
+
+class ScheduleCreate(BaseModel):
+    name: str
+    server_id: int
+    database: str = ""
+    sql: str
+    cadence: str = "0 7 * * *"
+    timezone: str = "America/Los_Angeles"
+    alert_condition: str = ""
+    notify_emails: str = ""
+    attach_csv: bool = True
+
+
+class ScheduleUpdate(BaseModel):
+    name: Optional[str] = None
+    database: Optional[str] = None
+    sql: Optional[str] = None
+    cadence: Optional[str] = None
+    timezone: Optional[str] = None
+    alert_condition: Optional[str] = None
+    notify_emails: Optional[str] = None
+    attach_csv: Optional[bool] = None
+    state: Optional[Literal["active", "paused"]] = None
+
+
+class ScheduleRunResponse(BaseModel):
+    id: int
+    schedule_id: int
+    started_at: datetime
+    status: str
+    row_count: int = 0
+    duration_ms: float = 0
+    alerted: bool = False
+    error: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ScheduleResponse(BaseModel):
+    id: int
+    owner_email: str
+    name: str
+    server_id: int
+    database: str = ""
+    sql: str
+    cadence: str
+    timezone: str
+    alert_condition: str = ""
+    notify_emails: str = ""
+    attach_csv: bool = True
+    state: str = "active"
+    paused_reason: str = ""
+    last_run_at: Optional[datetime] = None
+    last_result: str = ""
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuditEventResponse(BaseModel):
+    id: int
+    at: datetime
+    actor: str
+    actor_kind: str = "user"
+    event_type: str
+    server_id: Optional[int] = None
+    server_name: str = ""
+    database: str = ""
+    detail: str = ""
+    reason: str = ""
+    result: str = "ok"
+
+    class Config:
+        from_attributes = True
+
+
+class KillSessionRequest(BaseModel):
+    server_id: int
+    session_id: int
+    # Required and non-trivial: killing a session rolls back someone's
+    # in-flight transaction, and the log is worthless without the why.
+    reason: str
+
+
+class SnippetResponse(BaseModel):
+    id: int
+    owner_email: str
+    name: str
+    sql: str
+    description: str = ""
+    is_shared: bool = False
+    use_count: int = 0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

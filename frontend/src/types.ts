@@ -115,6 +115,31 @@ export interface AccessRequest {
   decision_note: string;
 }
 
+export interface QueryHistoryEntry {
+  id: number;
+  server_id: number;
+  server_name: string;
+  database: string;
+  sql: string;
+  status: 'ok' | 'error';
+  row_count: number;
+  duration_ms: number;
+  error: string | null;
+  started_at: string;
+}
+
+export interface SnippetItem {
+  id: number;
+  owner_email: string;
+  name: string;
+  sql: string;
+  description: string;
+  is_shared: boolean;
+  use_count: number;
+  created_at: string;
+  updated_at: string | null;
+}
+
 export interface TreeNode {
   id: string;
   label: string;

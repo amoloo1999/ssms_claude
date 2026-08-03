@@ -20,6 +20,7 @@ from app.models import (
 )
 from app.config import is_revman
 from app.services.permissions import can_access_server
+from app.services.audit import record
 
 router = APIRouter(prefix="/api/permissions", tags=["permissions"])
 
@@ -172,6 +173,15 @@ async def approve_request(
     req.decision_note = body.note
     await db.commit()
     await db.refresh(req)
+    await record(
+        db,
+        actor=user["email"],
+        event_type="grant",
+        server_id=req.server_id,
+        database=req.database,
+        detail=f"{req.user_email} → [{req.database}].[{req.schema_name}].[{req.table_name}]",
+        reason=body.note or "",
+    )
     return req
 
 
@@ -193,6 +203,16 @@ async def deny_request(
     req.decision_note = body.note
     await db.commit()
     await db.refresh(req)
+    await record(
+        db,
+        actor=user["email"],
+        event_type="deny",
+        server_id=req.server_id,
+        database=req.database,
+        detail=f"{req.user_email} → [{req.database}].[{req.schema_name}].[{req.table_name}]",
+        reason=body.note or "",
+        result="denied",
+    )
     return req
 
 

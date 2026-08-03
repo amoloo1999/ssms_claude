@@ -11,6 +11,7 @@ from app.models import ExportRequest, ServerConnection
 from app.services.connection import get_connection_string, execute_query_async
 from app.services.drivers import get_driver
 from app.services.permissions import can_access_server, check_query_permissions
+from app.services.audit import record
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -30,6 +31,10 @@ async def export_data(
     allowed, payload = await check_query_permissions(
         db, user, export_req.server_id, export_req.database, export_req.sql,
         get_driver(server.dialect).default_schema_for(server.database),
+        # This path executes the SQL it is handed, so it needs the same
+        # connection-level write gate as /query/execute. Without it, a write
+        # could reach a read-only connection through the export endpoint.
+        write_policy=server.write_policy or "read_write",
     )
     if not allowed:
         raise HTTPException(status_code=403, detail=payload)
@@ -41,6 +46,19 @@ async def export_data(
         raise HTTPException(status_code=400, detail=result["error"])
 
     df = pd.DataFrame(result["rows"], columns=result["columns"])
+
+    # Exports leave the tenant, so every one is recorded with its row count —
+    # this is the event you want when asking "who pulled that data out".
+    await record(
+        db,
+        actor=user["email"],
+        event_type="export",
+        server_id=server.id,
+        server_name=server.name,
+        database=export_req.database,
+        detail=f"{export_req.format.upper()} · {len(df)} rows · {(export_req.sql or '')[:1000]}",
+        result="ok",
+    )
 
     if export_req.format == "xlsx":
         buffer = io.BytesIO()

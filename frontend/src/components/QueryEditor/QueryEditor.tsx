@@ -6,13 +6,14 @@ import { executeQuery, cancelQuery, exportData, getSchemaSnapshot, requestAccess
 import ResultsGrid, { CellRef } from '../ResultsGrid/ResultsGrid';
 import ResultsChart from '../ResultsChart/ResultsChart';
 import DataDiff from '../DataDiff/DataDiff';
+import QueryPlan from '../QueryPlan/QueryPlan';
 import CellInspector from '../CellInspector/CellInspector';
 import ExportDialog from '../ExportDialog/ExportDialog';
 import { QueryResult, MissingTable, Dialect } from '../../types';
-import { VscPlay, VscDebugStop, VscExport, VscSparkle, VscAdd, VscClose, VscCopy } from 'react-icons/vsc';
+import { VscPlay, VscDebugStop, VscExport, VscSparkle, VscAdd, VscClose, VscCopy, VscSave } from 'react-icons/vsc';
 import AIAssistant from '../AIAssistant/AIAssistant';
 import { quoteIdent as quoteIdentAlways } from '../../utils/sqlDialect';
-import { onAll } from '../../utils/actionBus';
+import { emit, onAll } from '../../utils/actionBus';
 import { labelFor } from '../../utils/shortcuts';
 import { isUnscopedWrite } from '../../utils/settings';
 import './QueryEditor.css';
@@ -142,7 +143,7 @@ function QueryEditor({ ctx }: Props) {
   const [databases, setDatabases] = useState<string[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
   /** Which results view is showing: the grid, a chart, or the diff. */
-  const [resultView, setResultView] = useState<'grid' | 'chart' | 'diff'>('grid');
+  const [resultView, setResultView] = useState<'grid' | 'chart' | 'plan' | 'diff'>('grid');
   const [inspected, setInspected] = useState<CellRef | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -457,6 +458,7 @@ function QueryEditor({ ctx }: Props) {
       'prev-tab': () => cycleTab(-1),
       'grid-tab': () => setResultView('grid'),
       'chart-tab': () => setResultView('chart'),
+      'plan-tab': () => setResultView('plan'),
       'diff-tab': () => setResultView('diff'),
       'inspect-cell': () => setInspectorOpen((v) => !v),
       export: () => setExportOpen(true),
@@ -470,6 +472,20 @@ function QueryEditor({ ctx }: Props) {
     if (i === -1) return;
     const next = (i + delta + tabs.length) % tabs.length;
     setActiveTabId(tabs[next].id);
+  };
+
+  const handleSaveSnippet = async () => {
+    const sql = getActiveSQL().trim() || activeTab?.sql?.trim();
+    if (!sql) return;
+    const name = window.prompt('Name this snippet:', activeTab?.title || 'Untitled query');
+    if (!name) return;
+    try {
+      const { createSnippet } = await import('../../services/api');
+      await createSnippet({ name, sql });
+      // The rail reloads its own list when opened, so nothing to refresh here.
+    } catch (err: any) {
+      alert('Could not save snippet: ' + (err.response?.data?.detail || err.message));
+    }
   };
 
   const handleExport = async (format: 'csv' | 'xlsx') => {
@@ -558,6 +574,26 @@ function QueryEditor({ ctx }: Props) {
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => {
       handleExecuteRef.current();
     });
+
+    // Monaco binds several of these itself and calls preventDefault before the
+    // window handler ever sees them — Ctrl+K is its chord prefix, so the
+    // command palette simply would not open while the cursor was in the editor.
+    // Re-bind them here so a shortcut means the same thing wherever focus is.
+    const passThrough: [number, string][] = [
+      [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK, 'palette'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Slash, 'shortcuts'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Comma, 'settings'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE, 'plan-tab'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyE, 'export'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA, 'ai-panel'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyD, 'diff-tab'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyV, 'chart-tab'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG, 'grid-tab'],
+      [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Period, 'cancel'],
+    ];
+    for (const [keybinding, actionId] of passThrough) {
+      editor.addCommand(keybinding, () => emit(actionId));
+    }
 
     // Monaco's quickSuggestions only fires on word characters, so the popup
     // never auto-opens at positions like `WHERE `, `AND `, or after a comma
@@ -953,6 +989,14 @@ function QueryEditor({ ctx }: Props) {
             </button>
             <button
               className="export-btn"
+              onClick={handleSaveSnippet}
+              disabled={!activeTab?.sql?.trim()}
+              title="Save this query to the snippet library"
+            >
+              <VscSave /> Save snippet
+            </button>
+            <button
+              className="export-btn"
               onClick={() => handleCopyResults(activeSet)}
               disabled={!activeSet?.rows.length}
               title="Copy results to clipboard (TSV)"
@@ -1093,13 +1137,19 @@ function QueryEditor({ ctx }: Props) {
                   {/* View tabs — the grid, a chart of it, or a diff between
                       result sets. */}
                   <div className="result-tabs">
-                    {(['grid', 'chart', 'diff'] as const).map((v) => (
+                    {(['grid', 'chart', 'plan', 'diff'] as const).map((v) => (
                       <button
                         key={v}
                         className={`result-tab ${resultView === v ? 'active' : ''}`}
                         onClick={() => setResultView(v)}
                       >
-                        {v === 'grid' ? 'Grid' : v === 'chart' ? 'Chart' : 'Diff'}
+                        {v === 'grid'
+                          ? 'Grid'
+                          : v === 'chart'
+                          ? 'Chart'
+                          : v === 'plan'
+                          ? 'Plan'
+                          : 'Diff'}
                       </button>
                     ))}
                     {resultSets.length > 1 &&
@@ -1159,6 +1209,14 @@ function QueryEditor({ ctx }: Props) {
                       )}
                       {resultView === 'chart' && activeSet && (
                         <ResultsChart columns={activeSet.columns} rows={activeSet.rows} />
+                      )}
+                      {resultView === 'plan' && (
+                        <QueryPlan
+                          serverId={selectedServer}
+                          database={selectedDb}
+                          sql={activeTab?.sql || ''}
+                          onAskAI={() => setAiOpen(true)}
+                        />
                       )}
                       {resultView === 'diff' && (
                         <DataDiff
