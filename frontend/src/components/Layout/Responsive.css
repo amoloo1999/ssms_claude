@@ -12,6 +12,34 @@
    files would make the layout impossible to reason about.
    ═══════════════════════════════════════════════════════════════════════ */
 
+/* ── Base ────────────────────────────────────────────────────────────────
+   These must come BEFORE the media queries. `.rail-toggle { display: none }`
+   and the tablet rule that shows it are the same specificity, so whichever is
+   written last wins — with the base rule below, the toggle stayed hidden at
+   1024px and the explorer was unreachable on a tablet. */
+
+.rail-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-right: var(--space-2);
+  font-size: 14px;
+  color: var(--color-neutral-300);
+  background: none;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+}
+
+.rail-toggle:hover {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+.rail-scrim {
+  display: none;
+}
+
 /* ── Tablet: 1024–1279 ───────────────────────────────────────────────────── */
 @media (max-width: 1279px) {
   /* The explorer stops holding a column and slides over the content instead.
@@ -49,6 +77,7 @@
 
   /* Backdrop so tapping outside the sheet closes it. */
   .rail-scrim {
+    display: block;
     position: fixed;
     inset: 0;
     z-index: 899;
@@ -82,41 +111,54 @@
     box-shadow: var(--shadow-md);
   }
 
-  /* Chrome that only earns its space on a wide screen. */
-  .topbar-search span:first-child,
+  /* Chrome that only earns its space on a wide screen. At 1024 the nav alone
+     is eight items; leaving the search chip, the user's name and the session
+     count in wrapped the whole top bar onto two lines. */
+  .topbar-search,
+  .user-name,
   .conn-session {
     display: none;
   }
 
-  .topbar-left {
-    gap: var(--space-4);
+  .topbar {
+    gap: var(--space-3);
   }
-}
 
-/* Above tablet, the rail is a real column and its toggle is meaningless. */
-@media (min-width: 1280px) {
-  .rail-toggle,
-  .rail-scrim {
+  .topbar-left {
+    gap: var(--space-3);
+    /* min-width:0 lets the nav actually shrink inside the flex row instead of
+       forcing the bar wider than the viewport. */
+    min-width: 0;
+    flex: 1;
+  }
+
+  /* The nav scrolls sideways rather than wrapping — a two-line top bar pushes
+     everything below it down and looks broken. */
+  .topbar-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .topbar-tabs::-webkit-scrollbar {
     display: none;
   }
-}
 
-.rail-toggle {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  margin-right: var(--space-2);
-  font-size: 14px;
-  color: var(--color-neutral-300);
-  background: none;
-  border: 1px solid var(--color-divider);
-  border-radius: var(--radius-sm);
-}
+  .tab-btn,
+  .topbar-title {
+    white-space: nowrap;
+  }
 
-.rail-toggle:hover {
-  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  .tab-btn {
+    padding-inline: var(--space-3);
+  }
+
+  .topbar-right {
+    flex-shrink: 0;
+  }
+
+  .topbar-right .btn {
+    white-space: nowrap;
+  }
 }
 
 /* ── Narrow tablet / large phone: drop to a single column ────────────────── */
