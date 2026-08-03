@@ -10,9 +10,11 @@ from app.services.connection import get_connection_string, execute_query_async
 from app.services.drivers import get_driver
 from app.services.permissions import (
     can_access_server,
+    client_surface,
     get_user_grants,
     grant_covers,
     server_allows_writes,
+    surface_allows_writes,
 )
 
 router = APIRouter(prefix="/api/tables", tags=["tables"])
@@ -59,13 +61,18 @@ async def _check_read_access(
     return server
 
 
-def _require_write(user: dict, server: ServerConnection):
+def _require_write(user: dict, server: ServerConnection, surface: str = "desktop"):
     """Gate every row-mutating endpoint.
 
-    The connection's own policy is checked first and applies to everyone: a
-    read-only server (Aurora) refuses writes even from a RevMan. Only then does
-    the caller's role matter.
+    Three checks, each of which can only remove permission: the surface (phone
+    and tablet are read-only bar two addresses), the connection's own policy (a
+    read_only server refuses writes even from a RevMan), and finally the role.
     """
+    if not surface_allows_writes(surface, user.get("email", "")):
+        raise HTTPException(
+            status_code=403,
+            detail="Writes aren't allowed from the phone or tablet view. Use the desktop app.",
+        )
     if not server_allows_writes(server, user):
         raise HTTPException(
             status_code=403,
@@ -123,7 +130,7 @@ async def edit_cell(
     user: dict = Depends(require_auth),
 ):
     server = await _load_server(db, edit.server_id)
-    _require_write(user, server)
+    _require_write(user, server, client_surface(request))
     driver = get_driver(server.dialect)
     conn_str = await get_connection_string(db, edit.server_id, edit.database)
 
@@ -163,7 +170,7 @@ async def insert_row(
     user: dict = Depends(require_auth),
 ):
     server = await _load_server(db, server_id)
-    _require_write(user, server)
+    _require_write(user, server, client_surface(request))
     driver = get_driver(server.dialect)
     conn_str = await get_connection_string(db, server_id, database)
 
@@ -194,7 +201,7 @@ async def delete_row(
     user: dict = Depends(require_auth),
 ):
     server = await _load_server(db, server_id)
-    _require_write(user, server)
+    _require_write(user, server, client_surface(request))
     driver = get_driver(server.dialect)
     conn_str = await get_connection_string(db, server_id, database)
 

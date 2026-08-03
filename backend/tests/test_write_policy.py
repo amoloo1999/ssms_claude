@@ -18,13 +18,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.services.permissions import (  # noqa: E402
     can_write,
     check_query_permissions,
+    client_surface,
     server_allows_writes,
+    surface_allows_writes,
 )
 
 REVMAN = {"email": "amoloo@williamwarren.com"}
 VIEWER = {"email": "someone.else@williamwarren.com"}
 # On WRITE_ANYWHERE_EMAILS: exempt from a connection's read_only policy.
 EXEMPT = {"email": "cpj@williamwarren.com"}
+# A RevMan on NEITHER special list — writes on the desktop, read-only on a phone.
+REVMAN_OTHER = {"email": "chillyer@williamwarren.com"}
 
 WRITE_SQL = "UPDATE dbo.Sites SET Name = 'x' WHERE SiteId = 1"
 READ_SQL = "SELECT * FROM dbo.Sites"
@@ -34,12 +38,12 @@ def _server(write_policy="read_write", name="TEST"):
     return types.SimpleNamespace(write_policy=write_policy, name=name)
 
 
-def _check(user, sql, write_policy):
+def _check(user, sql, write_policy, surface="desktop"):
     """check_query_permissions is async and hits the DB only for non-RevMan
     grant lookups; the read-only path short-circuits before that, so a None
     session is safe for the cases asserted here."""
     return asyncio.run(
-        check_query_permissions(None, user, 1, "Sites", sql, "dbo", write_policy)
+        check_query_permissions(None, user, 1, "Sites", sql, "dbo", write_policy, surface)
     )
 
 
@@ -128,6 +132,74 @@ def test_exemption_is_per_user_not_global():
 def test_exemption_without_user_denies():
     # No caller supplied — fall back to the connection's own policy.
     assert server_allows_writes(_server("read_only")) is False
+
+
+# ── the phone / tablet surface (MOBILE_WRITE_EMAILS) ────────────────────────
+
+
+class _Req:
+    """Minimal stand-in for a Starlette request."""
+
+    def __init__(self, headers):
+        self.headers = headers
+
+
+def test_surface_is_read_from_the_header_and_defaults_closed_to_desktop():
+    assert client_surface(_Req({"x-client-surface": "mobile"})) == "mobile"
+    assert client_surface(_Req({"x-client-surface": "TABLET"})) == "tablet"
+    # Anything unrecognised or absent is 'desktop' — the permissive value, which
+    # is safe because this setting can only ever remove permission.
+    assert client_surface(_Req({})) == "desktop"
+    assert client_surface(_Req({"x-client-surface": "watch"})) == "desktop"
+
+
+def test_mobile_blocks_writes_for_a_revman_not_on_the_list():
+    # chillyer is a RevMan and may write on the desktop, but not from a phone.
+    allowed, payload = _check(REVMAN_OTHER, WRITE_SQL, "read_write", surface="mobile")
+    assert allowed is False
+    assert "phone or tablet" in payload["detail"]
+
+    allowed, _ = _check(REVMAN_OTHER, WRITE_SQL, "read_write", surface="desktop")
+    assert allowed is True
+
+
+def test_mobile_allows_writes_for_the_two_named_addresses():
+    for user in (REVMAN, EXEMPT):  # amoloo, cpj
+        allowed, _ = _check(user, WRITE_SQL, "read_write", surface="mobile")
+        assert allowed is True, user["email"]
+
+
+def test_mobile_still_allows_reads_for_everyone():
+    for surface in ("mobile", "tablet"):
+        allowed, _ = _check(REVMAN_OTHER, READ_SQL, "read_write", surface=surface)
+        assert allowed is True, surface
+
+
+def test_surface_narrows_but_never_widens():
+    # The whole safety property. amoloo is on the mobile list, but Aurora is a
+    # read_only connection and he is NOT on WRITE_ANYWHERE_EMAILS — so being
+    # allowed on mobile must not hand him Aurora writes.
+    allowed, payload = _check(REVMAN, WRITE_SQL, "read_only", surface="mobile")
+    assert allowed is False
+    assert "read-only" in payload["detail"]
+
+    # And the same on the desktop, unchanged by any of this.
+    allowed, _ = _check(REVMAN, WRITE_SQL, "read_only", surface="desktop")
+    assert allowed is False
+
+
+def test_cpj_keeps_aurora_writes_from_a_phone():
+    # cpj is on both lists, so both gates pass — his permissions are unchanged.
+    allowed, _ = _check(EXEMPT, WRITE_SQL, "read_only", surface="mobile")
+    assert allowed is True
+
+
+def test_surface_helper_matches_the_lists():
+    assert surface_allows_writes("desktop", VIEWER["email"]) is True
+    assert surface_allows_writes("mobile", VIEWER["email"]) is False
+    assert surface_allows_writes("mobile", REVMAN["email"]) is True
+    assert surface_allows_writes("tablet", EXEMPT["email"]) is True
+    assert surface_allows_writes("tablet", REVMAN_OTHER["email"]) is False
 
 
 def test_exemption_lifts_connection_gate_only_not_role_gate():

@@ -11,13 +11,21 @@ import {
 import { QueryHistoryEntry, QueryResult, Server, SnippetItem } from '../../types';
 import { connectionColor } from '../../utils/connectionColor';
 import { isReadOnlySql, writeVerb } from '../../utils/readOnlySql';
+import AskTab from './AskTab';
 import './MobileShell.css';
 
 interface Props {
   ctx: AppContext;
 }
 
-type MobileTab = 'queries' | 'history' | 'schema' | 'access';
+type MobileTab = 'ask' | 'queries' | 'history' | 'schema' | 'access';
+
+/**
+ * Who may write from this surface. Mirrors MOBILE_WRITE_EMAILS in the backend
+ * config; the server enforces it either way, this only shapes the UI so people
+ * aren't offered a button that will fail.
+ */
+const MOBILE_WRITE_EMAILS = ['cpj@williamwarren.com', 'amoloo@williamwarren.com'];
 
 /** What's open on top of the tab: a result, or the connection picker. */
 type Overlay =
@@ -34,7 +42,7 @@ type Overlay =
  * the screen: check a result from your phone, don't administer a database from it.
  */
 function MobileShell({ ctx }: Props) {
-  const [tab, setTab] = useState<MobileTab>('queries');
+  const [tab, setTab] = useState<MobileTab>('ask');
   const [overlay, setOverlay] = useState<Overlay>({ kind: 'none' });
 
   const [snippets, setSnippets] = useState<SnippetItem[]>([]);
@@ -114,9 +122,17 @@ function MobileShell({ ctx }: Props) {
         </button>
       </header>
 
-      <main className="mob-body">
+      <main className={`mob-body ${tab === 'ask' ? 'mob-body-flush' : ''}`}>
         {loading && <div className="mob-empty">Loading…</div>}
 
+        {!loading && tab === 'ask' && (
+          <AskTab
+            serverId={serverId}
+            database={database}
+            canWrite={MOBILE_WRITE_EMAILS.includes((ctx.user?.email || '').toLowerCase())}
+            onRun={openResult}
+          />
+        )}
         {!loading && tab === 'queries' && (
           <QueriesTab snippets={snippets} onOpen={openResult} me={ctx.user?.email} />
         )}
@@ -126,16 +142,18 @@ function MobileShell({ ctx }: Props) {
       </main>
 
       <nav className="mob-tabs">
-        {(['queries', 'history', 'schema', 'access'] as MobileTab[]).map((t) => (
+        {(['ask', 'queries', 'history', 'schema', 'access'] as MobileTab[]).map((t) => (
           <button
             key={t}
             className={`mob-tab ${tab === t ? 'active' : ''}`}
             onClick={() => setTab(t)}
           >
-            {t === 'queries'
-              ? 'Queries'
+            {t === 'ask'
+              ? 'Ask'
+              : t === 'queries'
+              ? 'Saved'
               : t === 'history'
-              ? 'History'
+              ? 'Recent'
               : t === 'schema'
               ? 'Schema'
               : 'Access'}

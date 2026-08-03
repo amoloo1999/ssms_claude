@@ -34,6 +34,21 @@ WRITE_ANYWHERE_EMAILS: frozenset[str] = frozenset({
     "cpj@williamwarren.com",
 })
 
+# Who may write from the phone / tablet surface.
+#
+# The small screen is for reading. These two addresses keep whatever write
+# access they already have when on a phone or tablet; everyone else is read-only
+# there regardless of role.
+#
+# This list can only NARROW what a user may do — it is intersected with the
+# normal permission checks, never substituted for them. So amoloo, who is on
+# this list, still cannot write to a read_only connection like Aurora, because
+# that gate is separate and still applies.
+MOBILE_WRITE_EMAILS: frozenset[str] = frozenset({
+    "cpj@williamwarren.com",
+    "amoloo@williamwarren.com",
+})
+
 # External collaborators allowed past the ALLOWED_DOMAIN check. Deliberately
 # per-address, not per-domain: adding "getuniti.com" to ALLOWED_DOMAIN would let
 # any employee of that company log in. Guests get role='user' like any
@@ -61,6 +76,11 @@ def is_guest(email: str | None) -> bool:
 def can_write_anywhere(email: str | None) -> bool:
     """Exempt from a connection's read_only policy. See WRITE_ANYWHERE_EMAILS."""
     return bool(email) and email.lower() in {e.lower() for e in WRITE_ANYWHERE_EMAILS}
+
+
+def can_write_on_mobile(email: str | None) -> bool:
+    """May write from the phone/tablet surface. See MOBILE_WRITE_EMAILS."""
+    return bool(email) and email.lower() in {e.lower() for e in MOBILE_WRITE_EMAILS}
 
 
 class Settings(BaseSettings):
