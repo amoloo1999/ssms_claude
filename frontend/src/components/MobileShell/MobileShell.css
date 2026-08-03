@@ -27,14 +27,40 @@
   font-size: 17px;
 }
 
+/* The connection is a tappable control, not a label. */
 .mob-conn {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
   margin-top: var(--space-2);
-  font-size: 11.5px;
-  letter-spacing: 0.04em;
+  padding: 0 var(--space-3);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--color-neutral-300);
+  background: var(--color-surface);
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.mob-conn-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mob-conn-db {
+  font-size: 11px;
   color: var(--color-neutral-500);
+}
+
+.mob-chev {
+  color: var(--color-neutral-600);
+  flex-shrink: 0;
 }
 
 .mob-dot {
@@ -152,4 +178,263 @@
 .mob-tab.active {
   color: var(--color-accent-300);
   box-shadow: inset 0 1px 0 var(--color-accent);
+}
+
+/* ── Actions, search, schema rows ────────────────────────────────────────── */
+.mob-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.mob-btn {
+  min-height: 44px;
+  padding: 0 var(--space-6);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 13px;
+  color: var(--color-neutral-300);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+}
+
+.mob-btn.primary {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.mob-btn:disabled {
+  opacity: 0.45;
+}
+
+.mob-note {
+  font-size: 11px;
+  color: var(--color-warning-text);
+}
+
+.mob-search {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-3);
+  font-size: 14px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+}
+
+.mob-tablerow {
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.mob-tablebtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-2);
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+.mob-cols {
+  padding: 0 var(--space-2) var(--space-3);
+}
+
+.mob-col {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 3px 0;
+  font-size: 11.5px;
+  color: var(--color-neutral-400);
+}
+
+.mob-coltype {
+  color: var(--color-neutral-600);
+}
+
+/* ── Connection sheet ────────────────────────────────────────────────────── */
+.mob-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  background: color-mix(in srgb, var(--color-neutral-900) 62%, transparent);
+}
+
+.mob-sheet {
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom, 0));
+  background: var(--color-bg);
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.mob-sheet-head {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 16px;
+  margin-bottom: var(--space-3);
+}
+
+.mob-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-1);
+  font-size: 13px;
+  color: var(--color-neutral-300);
+  background: var(--color-surface);
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.mob-pick.active {
+  color: var(--color-accent-300);
+  background: var(--color-accent-900);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.mob-close {
+  width: 100%;
+  margin-top: var(--space-4);
+}
+
+/* ── Result detail ───────────────────────────────────────────────────────── */
+.mob-result {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.mob-result-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+  flex-shrink: 0;
+}
+
+.mob-back {
+  width: 44px;
+  min-height: 44px;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--color-accent-300);
+  background: none;
+  border: none;
+}
+
+.mob-result-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 15px;
+}
+
+.mob-result-tabs {
+  display: flex;
+  gap: var(--space-6);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+  flex-shrink: 0;
+}
+
+.mob-rtab {
+  min-height: 40px;
+  padding: 0 2px;
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+  background: none;
+  border: none;
+}
+
+.mob-rtab.active {
+  color: var(--color-accent-300);
+  box-shadow: inset 0 -1px 0 var(--color-accent);
+}
+
+.mob-result-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* One record per row: identity on the left, the figure on the right. */
+.mob-record {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.mob-record-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mob-record-label {
+  font-size: 13.5px;
+  color: var(--color-text);
+}
+
+.mob-record-sub {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mob-record-figure {
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-300);
+  white-space: nowrap;
+}
+
+.mob-truncated {
+  padding: var(--space-4) 0;
+}
+
+.mob-sql-full {
+  max-height: none;
+}
+
+.mob-result-actions {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-divider);
+  flex-shrink: 0;
+}
+
+.mob-result-actions .mob-btn {
+  flex: 1;
 }
