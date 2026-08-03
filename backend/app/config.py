@@ -103,7 +103,14 @@ class Settings(BaseSettings):
     # Shared secret the Airflow scheduler DAG presents on /api/schedules/runner/*.
     # Empty means the runner endpoints refuse every request — an unset secret
     # fails closed, never open.
+    #
+    # Prefer scheduler_token_param (an SSM Parameter Store SecureString) over
+    # putting the value in .env: a parameter is encrypted at rest, and changing
+    # it never has to travel through an SSM command, whose parameters are
+    # retained in AWS command history for 30 days.
     scheduler_token: str = ""
+    scheduler_token_param: str = ""
+    aws_region: str = "us-west-1"
 
     # Anthropic / Claude AI assistant
     anthropic_api_key: str = ""
@@ -117,3 +124,39 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+@lru_cache
+def get_scheduler_token() -> str:
+    """The scheduler shared secret, preferring SSM Parameter Store.
+
+    Resolution order:
+      1. ``SCHEDULER_TOKEN_PARAM`` — the name of a SecureString parameter. Read
+         with the instance role, so the value is never written to disk on this
+         box and never passes through an SSM command's parameters.
+      2. ``SCHEDULER_TOKEN`` in .env — the fallback, and what shipped first.
+
+    A Parameter Store failure falls back to .env rather than raising: losing the
+    scheduler is bad, but taking the whole app down with it is worse. The result
+    is cached, so this costs one API call per process.
+
+    Returns "" when neither source yields a value, which makes the runner
+    endpoints refuse every request — unset fails closed.
+    """
+    settings = get_settings()
+    name = (settings.scheduler_token_param or "").strip()
+
+    if name:
+        try:
+            import boto3  # imported lazily so the app runs without it installed
+
+            client = boto3.client("ssm", region_name=settings.aws_region)
+            value = client.get_parameter(Name=name, WithDecryption=True)["Parameter"]["Value"]
+            if value:
+                return value.strip()
+        except Exception as exc:  # noqa: BLE001 — any failure means fall back
+            # Printed, not raised: worth seeing in the service log, not worth an
+            # outage. If .env still holds the token the app keeps working.
+            print(f"[config] could not read {name} from Parameter Store: {exc}")
+
+    return (settings.scheduler_token or "").strip()

@@ -20,3 +20,5 @@ openpyxl==3.1.5
 pyyaml==6.0.2
 aiosqlite==0.20.0
 anthropic==0.39.0
+# Reads the scheduler token from SSM Parameter Store (see config.get_scheduler_token).
+boto3==1.35.36
