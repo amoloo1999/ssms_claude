@@ -69,6 +69,27 @@ export const executeQuery = (
     )
     .then((r) => r.data);
 
+/**
+ * Estimated execution plan. Does not run the statement — the server returns the
+ * plan instead of executing it.
+ */
+export const getQueryPlan = (serverId: number, database: string, sql: string) =>
+  api
+    .post('/api/query/plan', { server_id: serverId, database, sql })
+    .then((r) => r.data);
+
+export const getForeignKeys = (
+  serverId: number,
+  database: string,
+  schema: string,
+  table: string,
+) =>
+  api
+    .get(
+      `/api/explorer/servers/${serverId}/databases/${database}/tables/${schema}.${table}/foreign-keys`,
+    )
+    .then((r) => r.data);
+
 // Ask the server to abort an in-flight query by its client-generated id.
 export const cancelQuery = (queryId: string) =>
   api.post('/api/query/cancel', { query_id: queryId }).then((r) => r.data);
