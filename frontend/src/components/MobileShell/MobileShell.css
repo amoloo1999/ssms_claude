@@ -1,0 +1,155 @@
+/* Read-only mobile companion — handoff screen 2J. */
+
+.mob {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  /* Keep content clear of the home indicator / notch. */
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  background: var(--color-bg);
+}
+
+.mob-head {
+  flex-shrink: 0;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.mob-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.mob-wordmark {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 17px;
+}
+
+.mob-conn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--color-neutral-500);
+}
+
+.mob-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.mob-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  -webkit-overflow-scrolling: touch;
+}
+
+.mob-empty {
+  padding: var(--space-8) var(--space-4);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-neutral-600);
+}
+
+.mob-kicker {
+  margin-bottom: var(--space-3);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.mob-card {
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.mob-card h3 {
+  font-size: 15px;
+  margin-bottom: var(--space-1);
+}
+
+.mob-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.mob-when {
+  font-size: 11px;
+  color: var(--color-neutral-500);
+}
+
+.mob-num {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-neutral-300);
+}
+
+.mob-meta {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+
+.mob-obj {
+  font-size: 12.5px;
+  color: var(--color-accent-300);
+  word-break: break-all;
+}
+
+.mob-sql {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  /* Wrap rather than scroll sideways — a phone has no horizontal room to
+     spare, and the body must never scroll horizontally. */
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow-y: auto;
+  color: var(--color-neutral-400);
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+}
+
+.mob-bad {
+  color: var(--color-danger-text);
+  font-size: 12px;
+}
+
+.mob-error {
+  margin-top: var(--space-2);
+}
+
+/* ── Bottom tab bar ──────────────────────────────────────────────────────── */
+.mob-tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-divider);
+  background: var(--color-surface);
+}
+
+.mob-tab {
+  flex: 1;
+  /* 44px floor per the handoff — every touch target on this screen. */
+  min-height: 44px;
+  font-size: 12.5px;
+  color: var(--color-neutral-500);
+  background: none;
+  border: none;
+}
+
+.mob-tab.active {
+  color: var(--color-accent-300);
+  box-shadow: inset 0 1px 0 var(--color-accent);
+}

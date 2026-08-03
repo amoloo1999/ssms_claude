@@ -24,6 +24,7 @@ from app.routers.ai import router as ai_router
 from app.routers.permissions import router as permissions_router
 from app.routers.history import router as history_router
 from app.routers.ops import router as ops_router
+from app.routers.schedules import router as schedules_router
 
 settings = get_settings()
 
@@ -121,6 +122,7 @@ app.include_router(ai_router)
 app.include_router(permissions_router)
 app.include_router(history_router)
 app.include_router(ops_router)
+app.include_router(schedules_router)
 
 
 @app.get("/health")
