@@ -68,6 +68,7 @@ export const SHORTCUTS: Shortcut[] = [
   // — Results —
   { id: 'grid-tab', label: 'Show grid', group: 'Results', mod: true, shift: true, key: 'g' },
   { id: 'chart-tab', label: 'Show chart', group: 'Results', mod: true, shift: true, key: 'v' },
+  { id: 'plan-tab', label: 'Show execution plan', group: 'Results', mod: true, key: 'e' },
   { id: 'diff-tab', label: 'Compare result sets', group: 'Results', mod: true, shift: true, key: 'd' },
   { id: 'inspect-cell', label: 'Inspect selected cell', group: 'Results', key: ' ', keyLabel: 'Space' },
   { id: 'export', label: 'Export results…', group: 'Results', mod: true, shift: true, key: 'e' },

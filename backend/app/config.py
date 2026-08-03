@@ -80,6 +80,11 @@ class Settings(BaseSettings):
     # Config file path for seeding servers
     config_file: str = "config.yaml"
 
+    # Shared secret the Airflow scheduler DAG presents on /api/schedules/runner/*.
+    # Empty means the runner endpoints refuse every request — an unset secret
+    # fails closed, never open.
+    scheduler_token: str = ""
+
     # Anthropic / Claude AI assistant
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"

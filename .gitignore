@@ -9,6 +9,9 @@ __pycache__/
 dist/
 build/
 *.db
+.venv/
+venv/
+.pytest_cache/
 
 # Node
 frontend/node_modules/
