@@ -71,6 +71,7 @@ class DatabaseDriver(ABC):
     # engines follow when someone actually needs them there.
     supports_foreign_keys: bool = False
     supports_execution_plan: bool = False
+    supports_session_monitor: bool = False
 
     def supports(self, capability: str) -> bool:
         """Whether this driver implements an optional capability.
@@ -233,6 +234,27 @@ class DatabaseDriver(ABC):
         Returned as three separate statements because SQL Server's SHOWPLAN
         settings must be their own batch — they cannot share one with the
         statement they apply to.
+        """
+        return None
+
+    # ── optional: session / lock monitor (supports_session_monitor) ──────────
+
+    def sessions_sql(self) -> Optional[str]:
+        """SQL returning one row per session:
+        (session_id, login_name, host_name, program_name, database_name,
+         status, blocked_by, wait_type, elapsed_ms, open_transactions,
+         current_statement)
+
+        ``blocked_by`` is 0/NULL when the session is not blocked.
+        """
+        return None
+
+    def kill_session_sql(self, session_id: int) -> Optional[str]:
+        """Statement that terminates a session. Returns None when unsupported.
+
+        Deliberately takes an int rather than a string — this value is
+        interpolated into SQL, and the caller coercing it to an integer is what
+        keeps it from being an injection point.
         """
         return None
 

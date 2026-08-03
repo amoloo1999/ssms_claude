@@ -46,6 +46,7 @@ class MssqlDriver(DatabaseDriver):
     # the base class's False and the UI hides the feature there.
     supports_foreign_keys = True
     supports_execution_plan = True
+    supports_session_monitor = True
 
     # ── connection lifecycle ─────────────────────────────────────────────────
     def build_connection_string(
@@ -253,6 +254,49 @@ class MssqlDriver(DatabaseDriver):
         ORDER BY fk.name
         """
         return sql, (schema, table, schema, table)
+
+    # ── session / lock monitor ───────────────────────────────────────────────
+
+    def sessions_sql(self) -> Optional[str]:
+        """One row per user session, with the statement currently in flight.
+
+        Left joins to dm_exec_requests because most sessions are idle and have
+        no request; an inner join would show only the busy ones and hide the
+        idle-with-open-transaction case, which is exactly the one worth seeing.
+        """
+        return """
+        SELECT
+            s.session_id,
+            s.login_name,
+            s.host_name,
+            s.program_name,
+            DB_NAME(COALESCE(r.database_id, s.database_id))  AS database_name,
+            COALESCE(r.status, s.status)                     AS status,
+            COALESCE(r.blocking_session_id, 0)               AS blocked_by,
+            COALESCE(r.wait_type, '')                        AS wait_type,
+            COALESCE(r.total_elapsed_time, 0)                AS elapsed_ms,
+            s.open_transaction_count                         AS open_transactions,
+            SUBSTRING(
+                t.text,
+                (COALESCE(r.statement_start_offset, 0) / 2) + 1,
+                CASE COALESCE(r.statement_end_offset, -1)
+                    WHEN -1 THEN DATALENGTH(t.text)
+                    ELSE (r.statement_end_offset - r.statement_start_offset) / 2 + 1
+                END
+            )                                                AS current_statement
+        FROM sys.dm_exec_sessions s
+        LEFT JOIN sys.dm_exec_requests r ON r.session_id = s.session_id
+        OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) t
+        WHERE s.is_user_process = 1
+        ORDER BY
+            CASE WHEN COALESCE(r.blocking_session_id, 0) <> 0 THEN 0 ELSE 1 END,
+            r.total_elapsed_time DESC
+        """
+
+    def kill_session_sql(self, session_id: int) -> Optional[str]:
+        # KILL takes no parameters, so the id is coerced to int by the caller
+        # and formatted here — that coercion is what keeps this safe.
+        return f"KILL {int(session_id)}"
 
     # ── execution plan ───────────────────────────────────────────────────────
 

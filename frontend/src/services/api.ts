@@ -211,6 +211,35 @@ export const deleteSnippet = (id: number) =>
 export const markSnippetUsed = (id: number) =>
   api.post(`/api/snippets/${id}/used`).then((r) => r.data);
 
+// ── Operations (sessions / kill / audit) ──
+
+export const getSessions = (serverId: number) =>
+  api.get(`/api/ops/servers/${serverId}/sessions`).then((r) => r.data);
+
+export const killSession = (serverId: number, sessionId: number, reason: string) =>
+  api
+    .post('/api/ops/kill', { server_id: serverId, session_id: sessionId, reason })
+    .then((r) => r.data);
+
+export const getAudit = (params?: { event_type?: string; search?: string }) =>
+  api.get('/api/ops/audit', { params: params || {} }).then((r) => r.data);
+
+// ── Schedules ──
+
+export const getSchedules = () => api.get('/api/schedules').then((r) => r.data);
+
+export const createSchedule = (data: any) =>
+  api.post('/api/schedules', data).then((r) => r.data);
+
+export const updateSchedule = (id: number, data: any) =>
+  api.put(`/api/schedules/${id}`, data).then((r) => r.data);
+
+export const deleteSchedule = (id: number) =>
+  api.delete(`/api/schedules/${id}`).then((r) => r.data);
+
+export const getScheduleRuns = (id: number) =>
+  api.get(`/api/schedules/${id}/runs`).then((r) => r.data);
+
 // ── Export ──
 
 export const exportData = async (serverId: number, database: string, sql: string, format: string) => {

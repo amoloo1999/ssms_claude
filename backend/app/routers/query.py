@@ -14,9 +14,24 @@ from app.models import (
 )
 from app.services.connection import get_connection_string, execute_query_async, cancel_query
 from app.services.drivers import get_driver
-from app.services.permissions import can_access_server, check_query_permissions
+from app.services.permissions import (
+    can_access_server,
+    check_query_permissions,
+    is_select_only,
+)
+from app.services.audit import record
 
 router = APIRouter(prefix="/api/query", tags=["query"])
+
+
+def _is_write(sql: str) -> bool:
+    """Whether a statement mutates anything.
+
+    Reuses the same denylist that gates view-only users, so "what counts as a
+    write" has one definition rather than two that can drift apart.
+    """
+    ok, _ = is_select_only(sql or "")
+    return not ok
 
 
 @router.post("/execute", response_model=QueryResult)
@@ -38,10 +53,38 @@ async def execute_sql(
         write_policy=server.write_policy or "read_write",
     )
     if not allowed:
+        # A refused statement is worth recording — a pattern of denials is a
+        # signal, whether it's someone needing a grant or something worse.
+        await record(
+            db,
+            actor=user["email"],
+            event_type="denied",
+            server_id=server.id,
+            server_name=server.name,
+            database=query.database,
+            detail=(query.sql or "")[:2000],
+            reason=str(payload.get("detail", ""))[:500],
+            result="denied",
+        )
         raise HTTPException(status_code=403, detail=payload)
 
     conn_str = await get_connection_string(db, query.server_id, query.database)
     result = await execute_query_async(conn_str, query.sql, query_id=query.query_id)
+
+    # Writes on any connection are recorded. Reads are not — they are already in
+    # per-user history, and auditing every SELECT would bury the events that
+    # matter under noise.
+    if _is_write(query.sql) and not result.get("error"):
+        await record(
+            db,
+            actor=user["email"],
+            event_type="write",
+            server_id=server.id,
+            server_name=server.name,
+            database=query.database,
+            detail=(query.sql or "")[:2000],
+            result="ok",
+        )
 
     # Record the run. Deliberately after the permission check — a statement that
     # was refused never ran, so it isn't history. Failures ARE recorded: "what
