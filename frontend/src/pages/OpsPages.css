@@ -1,0 +1,255 @@
+/* Sessions & locks (4E) and the audit log (4F) share this chrome. */
+
+.ops-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: auto;
+  padding: var(--space-6) var(--space-8);
+  background: var(--color-bg);
+}
+
+.ops-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+  flex-wrap: wrap;
+}
+
+.ops-header h2 {
+  font-size: 18px;
+}
+
+.ops-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ops-select {
+  padding: 4px var(--space-3);
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+}
+
+.ops-page .ops-search {
+  width: 240px;
+}
+
+.ops-empty {
+  padding: var(--space-8);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--color-neutral-600);
+}
+
+.ops-error {
+  margin-bottom: var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  font-size: 11.5px;
+  color: var(--color-danger-text);
+  background: var(--color-danger-tint);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Stat cards ──────────────────────────────────────────────────────────── */
+.ops-stats {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+  flex-wrap: wrap;
+}
+
+.ops-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 130px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.ops-stat-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-neutral-500);
+}
+
+.ops-stat-value {
+  font-size: 28px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.ops-stat-value.danger {
+  color: var(--color-danger-text);
+}
+
+/* ── Blocking chain ──────────────────────────────────────────────────────── */
+.ops-chain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.ops-chain-card {
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-danger-tint);
+  border-radius: var(--radius-md);
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+
+.ops-chain-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 12.5px;
+}
+
+.ops-chain-body {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--color-neutral-300);
+  max-width: 70ch;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+.ops-table {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.ops-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 130px 110px 110px;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.audit-row {
+  grid-template-columns: 130px 180px 110px 1fr 90px;
+  align-items: start;
+}
+
+.ops-head {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-neutral-500);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.ops-row:not(.ops-head) {
+  cursor: pointer;
+}
+
+.ops-row:not(.ops-head):hover {
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.ops-row.selected {
+  background: var(--color-accent-900);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+/* The head blocker and refused/failed events carry the red tint. */
+.ops-row.blocker {
+  background: var(--color-danger-tint);
+}
+
+.ops-row.blocked .ops-login {
+  color: var(--color-danger-text);
+}
+
+.ops-row.idle {
+  color: var(--color-neutral-600);
+}
+
+.ops-user {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ops-login {
+  color: var(--color-text);
+}
+
+.ops-stmt {
+  font-size: 11px;
+  color: var(--color-neutral-600);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ops-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-muted {
+  color: var(--color-neutral-600);
+}
+
+.ops-danger {
+  color: var(--color-danger-text);
+}
+
+.ops-footer {
+  margin-top: var(--space-4);
+  font-size: 11px;
+  color: var(--color-neutral-600);
+}
+
+/* ── Audit specifics ─────────────────────────────────────────────────────── */
+.audit-type {
+  font-size: 11.5px;
+  color: var(--color-accent-300);
+}
+
+.audit-type.danger {
+  color: var(--color-danger-text);
+}
+
+.audit-kind {
+  margin-left: var(--space-2);
+}
+
+.audit-detail {
+  font-size: 11.5px;
+  color: var(--color-neutral-400);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Expanded rows show the whole statement rather than truncating it. */
+.audit-detail.full {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: visible;
+}
+
+.audit-reason {
+  display: block;
+  margin-top: var(--space-2);
+  font-family: var(--font-body);
+  color: var(--color-warning-text);
+}

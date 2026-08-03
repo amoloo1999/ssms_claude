@@ -141,6 +141,34 @@ class Snippet(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
+class AuditEvent(Base):
+    """An append-only record of consequential actions.
+
+    Only ever inserted, never updated or deleted through the API — an audit log
+    an actor can edit is not an audit log. ``actor`` is a string rather than a
+    user id because not every actor is a person: a scheduled query records
+    itself as its owner with actor_kind='schedule'.
+    """
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_at", "at"),
+        Index("ix_audit_type", "event_type"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    at = Column(DateTime, server_default=func.now())
+    actor = Column(String, nullable=False)
+    actor_kind = Column(String, default="user", nullable=False)  # user | schedule
+    event_type = Column(String, nullable=False)  # write | export | grant | deny | kill | denied
+    server_id = Column(Integer, nullable=True)
+    server_name = Column(String, default="")
+    database = Column(String, default="")
+    detail = Column(Text, default="")
+    reason = Column(Text, default="")
+    result = Column(String, default="ok")
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -380,6 +408,31 @@ class SnippetUpdate(BaseModel):
     sql: Optional[str] = None
     description: Optional[str] = None
     is_shared: Optional[bool] = None
+
+
+class AuditEventResponse(BaseModel):
+    id: int
+    at: datetime
+    actor: str
+    actor_kind: str = "user"
+    event_type: str
+    server_id: Optional[int] = None
+    server_name: str = ""
+    database: str = ""
+    detail: str = ""
+    reason: str = ""
+    result: str = "ok"
+
+    class Config:
+        from_attributes = True
+
+
+class KillSessionRequest(BaseModel):
+    server_id: int
+    session_id: int
+    # Required and non-trivial: killing a session rolls back someone's
+    # in-flight transaction, and the log is worthless without the why.
+    reason: str
 
 
 class SnippetResponse(BaseModel):

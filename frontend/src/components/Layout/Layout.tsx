@@ -14,6 +14,8 @@ import SchemaDiagram from '../SchemaDiagram/SchemaDiagram';
 import ServerManager from '../ServerManager/ServerManager';
 import AdminPage from '../../pages/AdminPage';
 import MyAccessPage from '../../pages/MyAccessPage';
+import SessionsPage from '../../pages/SessionsPage';
+import AuditPage from '../../pages/AuditPage';
 import { connectionColor, connectionEnv } from '../../utils/connectionColor';
 import './Layout.css';
 
@@ -147,6 +149,24 @@ function Layout({ ctx }: Props) {
                 My Access
               </button>
             )}
+            {/* The session monitor shows other users' in-flight SQL, so it is
+                RevMan-only — enforced server-side, hidden here. */}
+            {isRevMan && (
+              <button
+                className={`tab-btn ${ctx.activeTab === 'sessions' ? 'active' : ''}`}
+                onClick={() => ctx.setActiveTab('sessions')}
+              >
+                Sessions
+              </button>
+            )}
+            {isApprover && (
+              <button
+                className={`tab-btn ${ctx.activeTab === 'audit' ? 'active' : ''}`}
+                onClick={() => ctx.setActiveTab('audit')}
+              >
+                Audit
+              </button>
+            )}
             {isApprover && (
               <button
                 className={`tab-btn ${ctx.activeTab === 'admin' ? 'active' : ''}`}
@@ -221,6 +241,8 @@ function Layout({ ctx }: Props) {
             {ctx.activeTab === 'query' && <QueryEditor ctx={ctx} />}
             {ctx.activeTab === 'table' && ctx.activeTable && <TableBrowser ctx={ctx} />}
             {ctx.activeTab === 'diagram' && <SchemaDiagram ctx={ctx} />}
+            {ctx.activeTab === 'sessions' && isRevMan && <SessionsPage ctx={ctx} />}
+            {ctx.activeTab === 'audit' && isApprover && <AuditPage />}
             {ctx.activeTab === 'schema' && isRevMan && <ServerManager ctx={ctx} />}
             {ctx.activeTab === 'admin' && isApprover && <AdminPage ctx={ctx} />}
             {ctx.activeTab === 'my-access' && !isRevMan && <MyAccessPage ctx={ctx} />}

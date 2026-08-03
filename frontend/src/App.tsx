@@ -28,8 +28,8 @@ export interface AppContext {
   setActiveQuery: (q: { serverId: number; database: string } | null) => void;
   activeTable: ActiveTable | null;
   setActiveTable: (t: ActiveTable | null) => void;
-  activeTab: 'query' | 'table' | 'diagram' | 'schema' | 'admin' | 'my-access';
-  setActiveTab: (t: 'query' | 'table' | 'diagram' | 'schema' | 'admin' | 'my-access') => void;
+  activeTab: 'query' | 'table' | 'diagram' | 'schema' | 'sessions' | 'audit' | 'admin' | 'my-access';
+  setActiveTab: (t: 'query' | 'table' | 'diagram' | 'schema' | 'sessions' | 'audit' | 'admin' | 'my-access') => void;
   pendingQuery: PendingQuery | null;
   setPendingQuery: (q: PendingQuery | null) => void;
   refreshExplorerNode: string | null;
@@ -44,7 +44,7 @@ function App() {
   const [servers, setServers] = useState<Server[]>([]);
   const [activeQuery, setActiveQuery] = useState<{ serverId: number; database: string } | null>(null);
   const [activeTable, setActiveTable] = useState<ActiveTable | null>(null);
-  const [activeTab, setActiveTab] = useState<'query' | 'table' | 'diagram' | 'schema' | 'admin' | 'my-access'>('query');
+  const [activeTab, setActiveTab] = useState<'query' | 'table' | 'diagram' | 'schema' | 'sessions' | 'audit' | 'admin' | 'my-access'>('query');
   const [pendingQuery, setPendingQuery] = useState<PendingQuery | null>(null);
   const [refreshExplorerNode, setRefreshExplorerNode] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
