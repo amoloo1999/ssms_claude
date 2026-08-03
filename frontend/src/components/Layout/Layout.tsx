@@ -15,16 +15,40 @@ import ServerManager from '../ServerManager/ServerManager';
 import AdminPage from '../../pages/AdminPage';
 import MyAccessPage from '../../pages/MyAccessPage';
 import SessionsPage from '../../pages/SessionsPage';
+import SchedulesPage from '../../pages/SchedulesPage';
+import MobileShell from '../MobileShell/MobileShell';
 import AuditPage from '../../pages/AuditPage';
 import { connectionColor, connectionEnv } from '../../utils/connectionColor';
 import './Layout.css';
+import './Responsive.css';
 
 interface Props {
   ctx: AppContext;
 }
 
+/**
+ * Below this the desktop shell is replaced outright by the read-only mobile
+ * companion, rather than compressed. 768px is the handoff's boundary.
+ */
+const MOBILE_MAX = 767;
+
 function Layout({ ctx }: Props) {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth <= MOBILE_MAX
+  );
+
+  // Watched rather than read once: a tablet rotating between portrait and
+  // landscape crosses this boundary, and so does a resized desktop window.
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_MAX}px)`);
+    const onChange = (e: MediaQueryListEvent | MediaQueryList) => setIsMobile(e.matches);
+    onChange(mq);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -105,11 +129,28 @@ function Layout({ ctx }: Props) {
       ? 'WRITES ALLOWED'
       : 'VIEW ONLY — WRITES BLOCKED';
 
+  // Below the mobile breakpoint the desktop shell is replaced outright rather
+  // than squeezed: no editor, no writes. See MobileShell.
+  if (isMobile) return <MobileShell ctx={ctx} />;
+
   return (
-    <div className="layout" style={{ ['--conn-active' as string]: connColor }}>
+    <div
+      className={`layout ${railOpen ? 'rail-open' : ''}`}
+      style={{ ['--conn-active' as string]: connColor }}
+    >
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
       <div className="topbar">
         <div className="topbar-left">
+          {/* Only rendered as a control below 1280px, where the explorer
+              becomes an overlay sheet. */}
+          <button
+            className="rail-toggle"
+            onClick={() => setRailOpen((v) => !v)}
+            title="Show or hide the explorer"
+            aria-label="Toggle explorer"
+          >
+            ☰
+          </button>
           <span className="topbar-title">SQL Studio</span>
           <nav className="topbar-tabs">
             <button
@@ -149,6 +190,12 @@ function Layout({ ctx }: Props) {
                 My Access
               </button>
             )}
+            <button
+              className={`tab-btn ${ctx.activeTab === 'schedules' ? 'active' : ''}`}
+              onClick={() => ctx.setActiveTab('schedules')}
+            >
+              Schedules
+            </button>
             {/* The session monitor shows other users' in-flight SQL, so it is
                 RevMan-only — enforced server-side, hidden here. */}
             {isRevMan && (
@@ -225,6 +272,7 @@ function Layout({ ctx }: Props) {
       </div>
 
       {/* ── Body ────────────────────────────────────────────────────────── */}
+      {railOpen && <div className="rail-scrim" onClick={() => setRailOpen(false)} />}
       <div className="main-content">
         <Split
           className="split-horizontal"
@@ -241,6 +289,7 @@ function Layout({ ctx }: Props) {
             {ctx.activeTab === 'query' && <QueryEditor ctx={ctx} />}
             {ctx.activeTab === 'table' && ctx.activeTable && <TableBrowser ctx={ctx} />}
             {ctx.activeTab === 'diagram' && <SchemaDiagram ctx={ctx} />}
+            {ctx.activeTab === 'schedules' && <SchedulesPage ctx={ctx} />}
             {ctx.activeTab === 'sessions' && isRevMan && <SessionsPage ctx={ctx} />}
             {ctx.activeTab === 'audit' && isApprover && <AuditPage />}
             {ctx.activeTab === 'schema' && isRevMan && <ServerManager ctx={ctx} />}
