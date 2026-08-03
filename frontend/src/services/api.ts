@@ -5,6 +5,24 @@ const api = axios.create({
   withCredentials: true,
 });
 
+/**
+ * Tell the server which surface a request came from.
+ *
+ * The backend uses this to keep the phone and tablet read-only for everyone
+ * except the addresses in MOBILE_WRITE_EMAILS. Read at request time rather than
+ * once at load, so rotating a tablet or resizing a window is picked up.
+ *
+ * This header can only ever REMOVE permission — forging 'desktop' just gets you
+ * the access you already have on a desktop. It is a guard rail for the small
+ * screen, not an authentication boundary, and the server treats it that way too.
+ */
+api.interceptors.request.use((config) => {
+  const w = typeof window !== 'undefined' ? window.innerWidth : 1920;
+  config.headers = config.headers || {};
+  config.headers['X-Client-Surface'] = w < 768 ? 'mobile' : w < 1280 ? 'tablet' : 'desktop';
+  return config;
+});
+
 // Redirect to login on 401
 api.interceptors.response.use(
   (res) => res,

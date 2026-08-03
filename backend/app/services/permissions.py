@@ -14,7 +14,38 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.config import can_write_anywhere, is_revman
+from app.config import can_write_anywhere, can_write_on_mobile, is_revman
+
+# The surfaces the frontend can declare. Anything unrecognised is treated as
+# 'desktop', which is the permissive value — see surface_allows_writes for why
+# that is safe.
+MOBILE_SURFACES = frozenset({"mobile", "tablet"})
+
+
+def client_surface(request) -> str:
+    """Which surface the request came from, per the X-Client-Surface header.
+
+    The frontend sets this from the viewport width. It is trivially forgeable —
+    and that is fine, because this value can only ever REMOVE permission. A user
+    who forges 'desktop' gets exactly the access they already have on a desktop;
+    there is nothing to escalate to. It is a guard rail for the small screen, not
+    an authentication boundary.
+    """
+    try:
+        value = (request.headers.get("x-client-surface") or "").strip().lower()
+    except Exception:
+        return "desktop"
+    return value if value in MOBILE_SURFACES else "desktop"
+
+
+def surface_allows_writes(surface: str, email: str | None) -> bool:
+    """Whether writes are permitted from this surface for this user.
+
+    Intersected with every other check, never substituted for one.
+    """
+    if surface in MOBILE_SURFACES:
+        return can_write_on_mobile(email)
+    return True
 from app.models import ServerConnection, TablePermission
 
 
@@ -208,24 +239,47 @@ async def check_query_permissions(
     sql: str,
     default_schema: str = "dbo",
     write_policy: str = "read_write",
+    surface: str = "desktop",
 ) -> tuple[bool, dict]:
     """Validate a SQL string before it is executed.
 
     Two independent gates:
 
-    1. ``write_policy`` — a property of the connection. When the server is
+    1. ``surface`` — the phone and tablet are read-only except for the
+       addresses in ``MOBILE_WRITE_EMAILS``.
+    2. ``write_policy`` — a property of the connection. When the server is
        read-only, writes are refused for everyone, RevMan included, except the
-       named addresses in ``WRITE_ANYWHERE_EMAILS``. This runs BEFORE the role
-       check, which is the whole point: it is not a role exemption.
-    2. The role. RevMan may write on a read_write server and skips the grant
+       named addresses in ``WRITE_ANYWHERE_EMAILS``.
+    3. The role. RevMan may write on a read_write server and skips the grant
        check; everyone else is restricted to SELECT over their granted tables.
+
+    All three are intersected. Each can only remove permission, so ordering
+    affects the message a user sees, not what they are ultimately allowed.
 
     Returns (allowed, error_payload). error_payload is shaped for the frontend
     to surface inline `Request access` buttons:
 
         {"detail": "...", "missing_tables": [{"server_id", "database", "schema", "table"}, ...]}
     """
-    if write_policy == "read_only" and not can_write_anywhere(user.get("email", "")):
+    email = user.get("email", "")
+
+    # Gate 1 — the surface. The phone and tablet are for reading; only the
+    # addresses in MOBILE_WRITE_EMAILS keep their write access there. Runs first
+    # because it is the narrowest and cheapest check.
+    if not surface_allows_writes(surface, email):
+        ok, _ = is_select_only(sql)
+        if not ok:
+            return False, {
+                "detail": (
+                    "Writes aren't allowed from the phone or tablet view. "
+                    "Open this on the desktop app instead."
+                ),
+                "missing_tables": [],
+            }
+
+    # Gate 2 — the connection. A read_only server refuses writes from everyone,
+    # RevMan included, except the named exemption list.
+    if write_policy == "read_only" and not can_write_anywhere(email):
         ok, _ = is_select_only(sql)
         if not ok:
             return False, {

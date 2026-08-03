@@ -10,7 +10,11 @@ from app.auth import require_auth
 from app.models import ExportRequest, ServerConnection
 from app.services.connection import get_connection_string, execute_query_async
 from app.services.drivers import get_driver
-from app.services.permissions import can_access_server, check_query_permissions
+from app.services.permissions import (
+    can_access_server,
+    check_query_permissions,
+    client_surface,
+)
 from app.services.audit import record
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -35,6 +39,7 @@ async def export_data(
         # connection-level write gate as /query/execute. Without it, a write
         # could reach a read-only connection through the export endpoint.
         write_policy=server.write_policy or "read_write",
+        surface=client_surface(request),
     )
     if not allowed:
         raise HTTPException(status_code=403, detail=payload)

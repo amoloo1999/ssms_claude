@@ -17,6 +17,7 @@ from app.services.drivers import get_driver
 from app.services.permissions import (
     can_access_server,
     check_query_permissions,
+    client_surface,
     is_select_only,
 )
 from app.services.audit import record
@@ -51,6 +52,7 @@ async def execute_sql(
         db, user, query.server_id, query.database, query.sql,
         get_driver(server.dialect).default_schema_for(server.database),
         write_policy=server.write_policy or "read_write",
+        surface=client_surface(request),
     )
     if not allowed:
         # A refused statement is worth recording — a pattern of denials is a
@@ -139,6 +141,7 @@ async def explain_sql(
         db, user, query.server_id, query.database, query.sql,
         driver.default_schema_for(server.database),
         write_policy=server.write_policy or "read_write",
+        surface=client_surface(request),
     )
     if not allowed:
         raise HTTPException(status_code=403, detail=payload)
