@@ -34,6 +34,48 @@ type Overlay =
   | { kind: 'result'; title: string; sql: string };
 
 /**
+ * The height that is actually on screen, in CSS pixels.
+ *
+ * Neither `100vh` nor `100dvh` is the visible height on a phone:
+ *
+ * - `100vh` is the LARGE viewport — the height the page would have if the
+ *   browser's toolbars were retracted. A shell sized in vh lays out about 85px
+ *   taller than what you can see, so the composer and the tab bar fall below
+ *   the fold. `body { overflow: hidden }` means you can't even scroll to them,
+ *   which is why the Saved tab looked like it had been removed.
+ * - `100dvh` tracks the toolbars, but neither unit shrinks for the on-screen
+ *   keyboard: iOS lays the keyboard OVER the layout viewport rather than
+ *   resizing it, so the input you are typing into slides underneath it.
+ *
+ * `visualViewport` reports what is genuinely visible in both cases, which makes
+ * it the only measurement that keeps the composer reachable while typing.
+ * Returns null where the API is missing, and the CSS dvh fallback takes over.
+ */
+function useVisibleHeight(): number | null {
+  const vv = typeof window !== 'undefined' ? window.visualViewport : undefined;
+  const [height, setHeight] = useState<number | null>(vv ? vv.height : null);
+
+  useEffect(() => {
+    if (!vv) return;
+    const sync = () => {
+      setHeight(vv.height);
+      // Opening the keyboard makes iOS scroll the focused field into view, which
+      // offsets the layout viewport under our shell. The shell is already sized
+      // to the visible area, so that scroll only misaligns it — undo it.
+      if (vv.offsetTop !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
+    };
+    vv.addEventListener('resize', sync);
+    vv.addEventListener('scroll', sync);
+    return () => {
+      vv.removeEventListener('resize', sync);
+      vv.removeEventListener('scroll', sync);
+    };
+  }, [vv]);
+
+  return height;
+}
+
+/**
  * The mobile companion — handoff screen 2J.
  *
  * READ-ONLY means no writes, not no execution. It runs a saved query and shows
@@ -44,6 +86,7 @@ type Overlay =
 function MobileShell({ ctx }: Props) {
   const [tab, setTab] = useState<MobileTab>('ask');
   const [overlay, setOverlay] = useState<Overlay>({ kind: 'none' });
+  const visibleHeight = useVisibleHeight();
 
   const [snippets, setSnippets] = useState<SnippetItem[]>([]);
   const [history, setHistory] = useState<QueryHistoryEntry[]>([]);
@@ -106,7 +149,10 @@ function MobileShell({ ctx }: Props) {
   };
 
   return (
-    <div className="mob">
+    <div
+      className="mob"
+      style={visibleHeight ? { height: `${visibleHeight}px` } : undefined}
+    >
       <header className="mob-head">
         <div className="mob-title">
           <span className="mob-wordmark">SQL Studio</span>
@@ -121,6 +167,31 @@ function MobileShell({ ctx }: Props) {
           <span className="mob-chev">▾</span>
         </button>
       </header>
+
+      {/* Ask and Saved are the two ways to get a query, so they get a switch of
+          their own rather than only living in the tab bar. The other three tabs
+          are references, not composition surfaces, and don't take part. */}
+      {(tab === 'ask' || tab === 'queries') && (
+        <div className="mob-seg" role="tablist" aria-label="Query source">
+          {([
+            ['ask', 'Ask AI'],
+            ['queries', 'Saved'],
+          ] as [MobileTab, string][]).map(([value, label]) => (
+            <button
+              key={value}
+              role="tab"
+              aria-selected={tab === value}
+              className={`mob-seg-btn ${tab === value ? 'active' : ''}`}
+              onClick={() => setTab(value)}
+            >
+              {label}
+              {value === 'queries' && snippets.length > 0 && (
+                <span className="mob-seg-count">{snippets.length}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       <main className={`mob-body ${tab === 'ask' ? 'mob-body-flush' : ''}`}>
         {loading && <div className="mob-empty">Loading…</div>}
