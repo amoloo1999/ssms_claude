@@ -326,6 +326,104 @@ def test_describe_reports_a_stale_maintained_table():
     assert "last write 2026-02-01 03:00:00" in text
 
 
+# ── suggestions ───────────────────────────────────────────────────────────────
+
+def test_suggestions_name_a_maintained_table_from_the_connected_database(snap):
+    out = lineage.build_suggestions(snap, "sE")
+    assert "unit_group_summary" in out[0]["text"]
+    assert out[0]["mode"] == "sql"
+
+
+def test_suggestions_never_offer_an_unmaintained_table(snap):
+    """`occupancy_old` and `occ_snapshot_20250114` must never be suggested —
+    a suggestion is a promise the question will work."""
+    for db in ("sites", "ga"):
+        for s in lineage.build_suggestions(snap, db):
+            assert "occupancy_old" not in s["text"]
+            assert "occ_snapshot" not in s["text"]
+            assert "marketing_analytics_daily" not in s["text"]
+
+
+def test_suggestions_fall_back_when_the_database_has_nothing_maintained(snap):
+    out = lineage.build_suggestions(snap, "sites")
+    assert out[0]["text"] == lineage.GENERIC_SUGGESTIONS[0]["text"]
+
+
+def test_suggestions_fall_back_with_no_snapshot_at_all():
+    out = lineage.build_suggestions(None, "sE")
+    assert [s["text"] for s in out[:2]] == [s["text"] for s in lineage.GENERIC_SUGGESTIONS]
+
+
+def test_suggestions_always_include_exactly_one_find_mode_entry(snap):
+    for db in ("sE", "sites", "gold", "nonexistent"):
+        modes = [s["mode"] for s in lineage.build_suggestions(snap, db)]
+        assert modes.count("find") == 1
+        assert modes[-1] == "find"
+
+
+def test_the_find_suggestion_names_the_database_domain(snap):
+    """sE's maintained table is domain `operations`, so the find question should
+    say operations rather than a hardcoded topic."""
+    out = lineage.build_suggestions(snap, "sE")
+    assert out[-1]["text"] == "Where does operations data live?"
+
+
+def test_a_domain_that_restates_the_database_is_not_used():
+    """The graph falls back to the database name when it can't classify a table:
+    gold.dim_site really does carry domain `aurora`. "Where does aurora data
+    live?" is not a question anyone asks — the next real domain wins."""
+    graph = {
+        "nodes": [
+            _node("tbl_dim_site", "gold.dim_site", "aurora", "gold",
+                  ntype="storage_aggregated", provenance="derived", fanOut=37,
+                  domain="aurora", existsInCatalog=True),
+            _node("tbl_dim_ug", "gold.dim_unit_group", "aurora", "gold",
+                  ntype="storage_aggregated", provenance="derived", fanOut=16,
+                  domain="operations", existsInCatalog=True),
+        ],
+        "edges": [],
+    }
+    out = lineage.build_suggestions(lineage._Snapshot(graph), "gold")
+    assert out[-1]["text"] == "Where does operations data live?"
+
+
+def test_a_shortened_database_domain_is_also_rejected():
+    """`RV Sites` yields domain `rv` — a substring, not an exact match."""
+    assert lineage._restates_database("rv", "RV Sites")
+    assert lineage._restates_database("aurora", "gold")   # via the alias
+    assert not lineage._restates_database("pricing", "sE")
+    assert not lineage._restates_database("marketing", "Sites")
+
+
+def test_suggestions_follow_the_aurora_alias(snap):
+    out = lineage.build_suggestions(snap, "gold")
+    assert "fact_occupied_units" in out[0]["text"]
+
+
+def test_suggestions_preserve_the_real_table_casing():
+    """`Market_Rates` reads better than `market_rates`, and the lookup index is
+    lowercased, so casing has to be carried separately."""
+    graph = {
+        "nodes": [_node("tbl_mr", "StorTrack.dbo.Market_Rates", "stortrack", "dbo",
+                        ntype="storage_aggregated", provenance="derived", fanOut=4,
+                        existsInCatalog=True)],
+        "edges": [],
+    }
+    out = lineage.build_suggestions(lineage._Snapshot(graph), "Stortrack")
+    assert "Market_Rates" in out[0]["text"]
+
+
+def test_a_non_dbo_schema_is_qualified_in_the_suggestion():
+    graph = {
+        "nodes": [_node("tbl_x", "analytics.conversions", "ga", "analytics",
+                        ntype="storage_aggregated", provenance="derived", fanOut=2,
+                        existsInCatalog=True)],
+        "edges": [],
+    }
+    out = lineage.build_suggestions(lineage._Snapshot(graph), "ga")
+    assert "analytics.conversions" in out[0]["text"]
+
+
 # ── snapshot loading ──────────────────────────────────────────────────────────
 
 def test_load_snapshot_caches_and_survives_failure(monkeypatch):

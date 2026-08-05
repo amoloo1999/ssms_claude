@@ -125,6 +125,12 @@ export const aiFix = (serverId: number, database: string, sql: string, error: st
 export const aiFindData = (serverId: number, prompt: string) =>
   api.post('/api/ai/find-data', { server_id: serverId, prompt }).then((r) => r.data);
 
+/** Example questions built from the tables this database actually maintains. */
+export const aiSuggestions = (serverId: number, database: string) =>
+  api
+    .get('/api/ai/suggestions', { params: { server_id: serverId, database } })
+    .then((r) => r.data);
+
 export const getSchemaSnapshot = (serverId: number, database: string) =>
   api
     .get(`/api/explorer/servers/${serverId}/databases/${database}/schema-snapshot`)

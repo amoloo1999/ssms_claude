@@ -13,6 +13,7 @@ from app.models import (
 )
 from app.services.connection import get_connection_string, build_connection_string
 from app.services import ai as ai_service
+from app.services import lineage
 from app.services.permissions import can_access_server
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -107,6 +108,34 @@ async def find_data(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI request failed: {e}")
     return AIResponse(**result)
+
+
+@router.get("/suggestions")
+async def suggestions(
+    server_id: int,
+    database: str = "",
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(block_guests),
+):
+    """Example questions for the AI chat, grounded in the connected database.
+
+    Never fails the caller: any problem resolving the lineage snapshot returns
+    the generic catalog questions instead, because a chat screen with no
+    starting point is a worse outcome than a slightly less specific one.
+    """
+    server = (
+        await db.execute(select(ServerConnection).where(ServerConnection.id == server_id))
+    ).scalar_one_or_none()
+    if not server or not can_access_server(user, server):
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    target = database or server.database or ""
+    try:
+        conn = await _lineage_conn(db, server)
+        snapshot = await asyncio.to_thread(lineage.load_snapshot, conn) if conn else None
+        return {"suggestions": lineage.build_suggestions(snapshot, target)}
+    except Exception:
+        return {"suggestions": list(lineage.GENERIC_SUGGESTIONS)}
 
 
 @router.post("/fix", response_model=AIResponse)

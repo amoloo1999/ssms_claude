@@ -153,6 +153,8 @@ class _Snapshot:
         self._by_db_table: dict[tuple[str, str], str] = {}
         # table -> [node id]. Only usable when it resolves to exactly one node.
         self._by_table: dict[str, list[str]] = {}
+        # database -> [node id], for offering example tables from a database.
+        self._by_db: dict[str, list[str]] = {}
 
         for node in nodes:
             nid = node.get("id")
@@ -161,7 +163,8 @@ class _Snapshot:
             self._by_id[nid] = node
             if not str(node.get("type", "")).startswith("storage"):
                 continue
-            table = _table_name_of(node)
+            display = _table_name_of(node)
+            table = _norm(display)
             if not table:
                 continue
             db = _norm(node.get("database"))
@@ -169,6 +172,7 @@ class _Snapshot:
             if db and db != "unknown":
                 self._exact.setdefault((db, schema, table), nid)
                 self._by_db_table.setdefault((db, table), nid)
+                self._by_db.setdefault(db, []).append(nid)
             self._by_table.setdefault(table, []).append(nid)
 
         # Writers and readers, resolved per node.
@@ -252,6 +256,27 @@ class _Snapshot:
             nid = candidates[0]
         return self._facts_for(nid)
 
+    def example_tables(self, database: str, limit: int = 2) -> list[tuple[str, str, "TableFacts"]]:
+        """Maintained, live tables in one database, most-read first.
+
+        These become the on-screen example questions, so the bar is higher than
+        for a search result: a suggestion is a promise that the question will
+        work. Anything unmaintained, retired or absent from the catalog is
+        excluded outright rather than ranked down.
+        """
+        db = _DB_ALIASES.get(_norm(database), _norm(database))
+        picked: list[tuple[str, str, TableFacts]] = []
+        for nid in self._by_db.get(db, []):
+            facts = self._facts_for(nid)
+            if facts is None or not facts.is_maintained:
+                continue
+            if facts.is_retired or facts.is_missing:
+                continue
+            node = self._by_id[nid]
+            picked.append((str(node.get("schema") or "dbo"), _table_name_of(node), facts))
+        picked.sort(key=lambda item: item[2].rank())
+        return picked[:limit]
+
     def _facts_for(self, nid: str) -> Optional[TableFacts]:
         node = self._by_id.get(nid)
         if node is None:
@@ -290,7 +315,10 @@ def _label_of(node: Optional[dict], fallback: str) -> str:
 
 
 def _table_name_of(node: dict) -> str:
-    """The bare table name for a node.
+    """The bare table name for a node, in its ORIGINAL casing.
+
+    Callers that need a lookup key lowercase the result themselves; suggestions
+    show it to the user, where `Market_Rates` beats `market_rates`.
 
     Labels are not uniformly qualified — the graph carries `dbo.pipeline_brief_state`,
     `stortrack.dbo.all_comp_sf_dist`, `gold.fact_comp_rates` and bare `campaign`
@@ -307,7 +335,7 @@ def _table_name_of(node: dict) -> str:
         p = str(prefix or "").strip()
         if p and label.lower().startswith(p.lower() + "."):
             label = label[len(p) + 1:]
-    return _norm(label)
+    return label.strip()
 
 
 # ── snapshot cache ────────────────────────────────────────────────────────────
@@ -483,6 +511,72 @@ def describe(facts: Optional[TableFacts]) -> str:
         parts.append(f"domain {facts.domain}")
 
     return "; ".join(parts) if parts else "no lineage record"
+
+
+# Shown when the connected database has no maintained tables we can name — a
+# fresh connection, an unmodelled database, or no snapshot at all. These touch
+# only catalog views, so they answer correctly on any connection and any engine.
+GENERIC_SUGGESTIONS = [
+    {"text": "What tables are in this database?", "mode": "sql"},
+    {"text": "Which tables have a site number column?", "mode": "sql"},
+]
+
+
+def _restates_database(domain: str, database: str) -> bool:
+    """True when a domain label is really just the database name again.
+
+    Substring rather than equality, because the graph shortens some of them:
+    the `RV Sites` database yields domain `rv`.
+    """
+    d = _norm(domain)
+    db = _DB_ALIASES.get(_norm(database), _norm(database))
+    return bool(d) and (d in db or db in d)
+
+
+def build_suggestions(snapshot: Optional["_Snapshot"], database: str) -> list[dict]:
+    """Example questions for the AI chat, grounded in the connected database.
+
+    The previous suggestions were hardcoded and two of the three could not be
+    answered at all: revenue lives on the Great Plains server, which this
+    connection cannot reach, and the occupancy one needed a facilities UUID
+    join. A suggestion that fails is worse than no suggestion — it teaches the
+    user the assistant is broken.
+
+    So every suggestion names a table that this database really has and a
+    pipeline really maintains, or else falls back to a catalog question that
+    cannot fail. Both shapes are single-table with no joins and no date
+    arithmetic, which is the class of question the generator gets right.
+    """
+    tables = snapshot.example_tables(database, limit=2) if snapshot else []
+
+    out: list[dict] = []
+    for schema, table, _facts in tables:
+        qualified = table if schema.lower() == "dbo" else f"{schema}.{table}"
+        if not out:
+            out.append({"text": f"Show the 20 most recent rows in {qualified}", "mode": "sql"})
+        else:
+            out.append({"text": f"How many rows are in {qualified}?", "mode": "sql"})
+
+    if not out:
+        out = list(GENERIC_SUGGESTIONS)
+
+    # One find-data example, because that path is the strongest thing here now.
+    # Name the domain the connected database actually deals in, so the question
+    # reads as relevant rather than boilerplate.
+    #
+    # Skip a domain that just restates the database — the graph falls back to the
+    # database name when it can't classify a table, giving `aurora` for
+    # gold.dim_site and `sites` for conserviceBills_clean. "Where does aurora
+    # data live?" is not a question anyone would ask.
+    domain = next(
+        (f.domain for _s, _t, f in tables if f.domain and not _restates_database(f.domain, database)),
+        None,
+    )
+    out.append(
+        {"text": f"Where does {domain} data live?" if domain else "Where does occupancy data live?",
+         "mode": "find"}
+    )
+    return out
 
 
 # How the model should read the annotations above. Appended to the find_data
