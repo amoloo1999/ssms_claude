@@ -275,6 +275,13 @@
   border-radius: var(--radius-sm);
 }
 
+/* Marks the one suggestion that searches for a table rather than writing SQL,
+   so the two kinds of answer aren't a surprise. */
+.ask-suggestion-icon {
+  margin-right: var(--space-2);
+  color: var(--color-accent);
+}
+
 .ask-note {
   margin-top: var(--space-6);
   font-size: 11.5px;

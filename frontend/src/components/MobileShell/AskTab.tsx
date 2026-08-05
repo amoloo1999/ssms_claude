@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { aiGenerate, aiFindData } from '../../services/api';
+import { aiGenerate, aiFindData, aiSuggestions } from '../../services/api';
 import { isReadOnlySql, writeVerb } from '../../utils/readOnlySql';
 
 interface Props {
@@ -19,10 +19,26 @@ interface Turn {
   error?: string;
 }
 
-const SUGGESTIONS = [
-  'Top 10 sites by revenue last month',
-  'Which sites had occupancy below 80% this week?',
-  'Where does occupancy data live?',
+interface Suggestion {
+  text: string;
+  mode: 'sql' | 'find';
+}
+
+/**
+ * Shown until the server answers, and if it never does.
+ *
+ * These replaced three hardcoded questions, two of which could not be answered
+ * at all: revenue lives on the Great Plains server, which this connection
+ * cannot reach, and the occupancy one needed a facilities UUID join. The third
+ * asked where data lived but was sent to the SQL generator rather than to
+ * find-data. A suggestion that fails teaches the user the assistant is broken,
+ * so the fallbacks now touch only catalog views — no joins, no date maths, and
+ * nothing that assumes a particular table exists.
+ */
+const FALLBACK_SUGGESTIONS: Suggestion[] = [
+  { text: 'What tables are in this database?', mode: 'sql' },
+  { text: 'Which tables have a site number column?', mode: 'sql' },
+  { text: 'Where does occupancy data live?', mode: 'find' },
 ];
 
 /**
@@ -42,11 +58,31 @@ function AskTab({ serverId, database, canWrite, onRun }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>(FALLBACK_SUGGESTIONS);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [turns]);
+
+  // Re-fetch per connection: the examples name tables from the database you are
+  // actually on, so switching from Stortrack to Sites has to change them.
+  useEffect(() => {
+    if (!serverId) return;
+    let cancelled = false;
+    aiSuggestions(serverId, database)
+      .then((res: any) => {
+        if (!cancelled && Array.isArray(res?.suggestions) && res.suggestions.length) {
+          setSuggestions(res.suggestions);
+        }
+      })
+      .catch(() => {
+        /* keep the fallbacks — they answer on any connection */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [serverId, database]);
 
   const ask = async (text: string, mode: 'sql' | 'find' = 'sql') => {
     const q = text.trim();
@@ -111,9 +147,14 @@ function AskTab({ serverId, database, canWrite, onRun }: Props) {
               the SQL before anything runs.
             </p>
             <div className="mob-kicker">Try</div>
-            {SUGGESTIONS.map((s) => (
-              <button key={s} className="ask-suggestion" onClick={() => ask(s)}>
-                {s}
+            {suggestions.map((s) => (
+              <button
+                key={s.text}
+                className="ask-suggestion"
+                onClick={() => ask(s.text, s.mode)}
+              >
+                {s.mode === 'find' && <span className="ask-suggestion-icon">⌕</span>}
+                {s.text}
               </button>
             ))}
             <p className="ask-note">
