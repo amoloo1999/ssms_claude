@@ -1,6 +1,7 @@
 import re
 from anthropic import Anthropic
 from app.config import get_settings
+from app.services import lineage
 from app.services.connection import execute_query, build_connection_string
 from app.services.drivers import ConnHandle, DatabaseDriver, get_driver
 
@@ -124,6 +125,7 @@ def generate_sql(
     current_sql: str | None,
     dialect: str = "mssql",
     database: str | None = None,
+    lineage_conn: ConnHandle | None = None,
 ) -> dict:
     """Generate SQL in the server's dialect, with schema context.
 
@@ -131,6 +133,11 @@ def generate_sql(
     active database is the default execution context; other databases are
     referenced with fully-qualified names). For single-connection engines
     (Postgres/MySQL/Snowflake), only the connected database's schema is offered.
+
+    Cross-database candidates carry their lineage standing, because picking a
+    table is the same decision here as in ``find_data`` — a query written
+    against a retired table is wrong in exactly the same way whether the user
+    asked "where does this live" or "write me the query".
     """
     driver = get_driver(dialect)
     connect_db = _connect_database(driver, active_database, database)
@@ -138,7 +145,10 @@ def generate_sql(
     active_ctx = _fetch_schema_context(active_conn, driver, prompt)
 
     if driver.cross_database_supported:
-        cross_db_ctx = _fetch_cross_db_schema(host, port, username, password, prompt)
+        snapshot = lineage.load_snapshot(lineage_conn) if lineage_conn else None
+        cross_db_ctx = _fetch_cross_db_schema(
+            host, port, username, password, prompt, snapshot=snapshot
+        )
         user_msg = (
             f"Active database (default execution context): {active_database}\n\n"
             f"Schema in the active database (subset):\n{active_ctx}\n\n"
@@ -148,6 +158,12 @@ def generate_sql(
             "you MUST use the fully-qualified `[database].[schema].[table]` form so the query "
             "runs from the active database context.\n\n"
         )
+        if snapshot:
+            user_msg += (
+                "Cross-database matches are annotated with what maintains them. Prefer a "
+                "table a pipeline writes over a similarly-named one nothing writes, and "
+                "never use one marked MISSING FROM CATALOG or a retired lifecycle.\n\n"
+            )
     else:
         user_msg = (
             f"Connected database: {connect_db}\n\n"
@@ -171,12 +187,15 @@ def _fetch_cross_db_schema(
     prompt: str,
     max_databases: int = 25,
     max_matches: int = 150,
+    snapshot=None,
 ) -> str:
     """Search every user database on a SQL Server for tables/columns matching
     prompt keywords. SQL Server only — single-connection engines never call this.
 
     Returns a compact textual catalog like `[db].schema.table -> col1 type, col2 type`,
-    or a placeholder string if there's nothing useful to report.
+    or a placeholder string if there's nothing useful to report. When a lineage
+    snapshot is supplied, each line also carries that table's standing and the
+    list is ordered with maintained tables first.
     """
     keywords = _extract_keywords(prompt)
     if not keywords:
@@ -228,9 +247,19 @@ def _fetch_cross_db_schema(
     if not grouped:
         return f"(no tables/columns matched keywords {keywords} in any database on this server)"
 
+    if snapshot is None:
+        return "\n".join(
+            f"[{db}].{schema}.{table}({', '.join(cols)})"
+            for (db, schema, table), cols in grouped.items()
+        )
+
+    # No live write stats on this path — generate_sql already runs several
+    # queries before the model is called, and a per-database DMV sweep for
+    # context the model mostly uses to pick a JOIN target isn't worth the
+    # latency. The structural lineage facts are the ones that change the answer.
     return "\n".join(
-        f"[{db}].{schema}.{table}({', '.join(cols)})"
-        for (db, schema, table), cols in grouped.items()
+        f"[{db}].{schema}.{table}({', '.join(cols)})  [{lineage.describe(facts)}]"
+        for (db, schema, table), cols, facts in _annotate(grouped, snapshot, {})
     )
 
 
@@ -246,6 +275,49 @@ def _extract_keywords(prompt: str) -> list[str]:
     return seen[:10]
 
 
+def _collect_write_stats(
+    host: str, port: int, username: str, password: str, databases: list[str]
+) -> dict[tuple[str, str, str], tuple[int | None, str | None]]:
+    """Row counts and last-write times for the databases that produced matches.
+
+    One query per database, and only for databases that actually matched — a
+    keyword hitting two databases costs two queries, not one per database on the
+    server. Any database that refuses the DMVs is simply absent from the result.
+    """
+    stats: dict[tuple[str, str, str], tuple[int | None, str | None]] = {}
+    for db_name in databases:
+        conn = build_connection_string(host, port, username, password, db_name)
+        for (schema, table), value in lineage.fetch_write_stats(conn).items():
+            stats[(db_name.lower(), schema, table)] = value
+    return stats
+
+
+def _annotate(
+    grouped: dict[tuple[str, str, str], list[str]],
+    snapshot,
+    stats: dict[tuple[str, str, str], tuple[int | None, str | None]],
+) -> list[tuple[tuple[str, str, str], list[str], "lineage.TableFacts | None"]]:
+    """Attach lineage facts and live write stats to each candidate, best first.
+
+    Candidates with no lineage record keep their place in the list rather than
+    being dropped: an unknown table is not a dead one, and the model is told to
+    read a missing record as absence of evidence.
+    """
+    annotated = []
+    for key, cols in grouped.items():
+        db_name, schema, table = key
+        facts = snapshot.lookup(db_name, schema, table) if snapshot else None
+        stat = stats.get((db_name.lower(), schema.lower(), table.lower()))
+        if stat is not None:
+            if facts is None:
+                facts = lineage.TableFacts()
+            facts.row_count, facts.last_write = stat
+        annotated.append((key, cols, facts))
+
+    annotated.sort(key=lambda item: item[2].rank() if item[2] else (1, 0, 0, 0, 0))
+    return annotated
+
+
 def find_data(
     host: str,
     port: int,
@@ -256,12 +328,19 @@ def find_data(
     database: str | None = None,
     max_databases: int = 25,
     max_matches: int = 200,
+    lineage_conn: ConnHandle | None = None,
 ) -> dict:
     """Search for tables/columns relevant to the prompt and suggest where the
     data lives, plus a starter SELECT.
 
     SQL Server searches every user database on the server; single-connection
     engines search only the connected database.
+
+    Text matching only ever proposes candidates. Which one gets recommended is
+    decided from the lineage knowledge base — what a pipeline maintains, what is
+    retired, what has quietly stopped being written. ``lineage_conn`` points at
+    the server holding the lineage snapshot; without it the answer falls back to
+    name similarity alone, which is what this used to do.
     """
     keywords = _extract_keywords(prompt)
     if not keywords:
@@ -297,16 +376,29 @@ def find_data(
     for db_name, schema, table, col, dtype in matches:
         grouped.setdefault((db_name, schema, table), []).append(f"{col} {dtype}")
 
+    snapshot = lineage.load_snapshot(lineage_conn) if lineage_conn else None
+    stats: dict[tuple[str, str, str], tuple[int | None, str | None]] = {}
+    if driver.cross_database_supported:
+        stats = _collect_write_stats(
+            host, port, username, password, sorted({k[0] for k in grouped})
+        )
+
+    annotated = _annotate(grouped, snapshot, stats)
     catalog_lines = []
-    for (db_name, schema, table), cols in grouped.items():
-        catalog_lines.append(f"[{db_name}].{schema}.{table} -> {', '.join(cols)}")
+    for (db_name, schema, table), cols, facts in annotated:
+        catalog_lines.append(
+            f"[{db_name}].{schema}.{table} -> {', '.join(cols)}\n"
+            f"    [{lineage.describe(facts)}]"
+        )
     catalog = "\n".join(catalog_lines)
 
     if driver.cross_database_supported:
         scope_note = (
             "I searched every user database on this SQL Server for tables and columns "
-            f"matching the keywords {keywords}. Below is every match — each line is "
-            "`[database].schema.table -> matching columns`."
+            f"matching the keywords {keywords}. Below is every match, already ordered "
+            "with the maintained tables first — each entry is "
+            "`[database].schema.table -> matching columns`, then a bracketed line of "
+            "evidence about whether anything maintains it."
         )
         qualify_note = (
             "Provide a starter `SELECT TOP 100` query against the best candidate, using "
@@ -315,22 +407,33 @@ def find_data(
     else:
         scope_note = (
             f"I searched the connected database for tables and columns matching the "
-            f"keywords {keywords}. Below is every match — each line is "
-            "`[database].schema.table -> matching columns`."
+            f"keywords {keywords}. Below is every match, already ordered with the "
+            "maintained tables first — each entry is "
+            "`[database].schema.table -> matching columns`, then a bracketed line of "
+            "evidence about whether anything maintains it."
         )
         qualify_note = (
             "Provide a starter query that returns the first 100 rows against the best "
             "candidate, referencing it as `schema.table`."
         )
 
+    evidence_note = lineage.GUIDANCE if snapshot else (
+        "The lineage knowledge base is unavailable right now, so these candidates are "
+        "ranked by name similarity only. Say so if you are choosing between several "
+        "similar names — do not imply you know which one is maintained."
+    )
+
     user_msg = (
         f"User question: {prompt}\n\n"
         f"{scope_note}\n\n"
+        f"{evidence_note}\n\n"
         f"{catalog}\n\n"
         "Based on these matches, do two things:\n"
         "1. In one short paragraph, tell the user where this data most likely lives "
-        "(name the database, schema, and table). If multiple candidates look plausible, "
-        "list the top 2-3 and say how to tell them apart.\n"
+        "(name the database, schema, and table) and what maintains it. If multiple "
+        "candidates look plausible, list the top 2-3 and say how to tell them apart. "
+        "If you are passing over a closer name match because nothing maintains it, say "
+        "which one and why.\n"
         f"2. {qualify_note}\n"
     )
     text = _call_claude(_system_prompt(driver), user_msg)

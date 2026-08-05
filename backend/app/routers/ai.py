@@ -11,11 +11,44 @@ from app.models import (
     AIResponse,
     ServerConnection,
 )
-from app.services.connection import get_connection_string
+from app.services.connection import get_connection_string, build_connection_string
 from app.services import ai as ai_service
 from app.services.permissions import can_access_server
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+
+
+async def _lineage_conn(db: AsyncSession, server: ServerConnection):
+    """Connection to the server holding RMTools.dbo.LineageSnapshot.
+
+    The lineage knowledge base lives on the main SQL Server, but the question
+    may be asked from any connection — Aurora included, and the graph covers
+    Aurora gold too. So the snapshot is always read from the `main` server
+    rather than from whichever one the user happens to be on.
+
+    Returns None when there is no such server, which makes the AI service fall
+    back to name-similarity ranking rather than fail. This deliberately does not
+    consult `can_access_server`: the caller has already been authorised for the
+    server they are querying, and the snapshot contributes table *metadata* to a
+    prompt, never rows. A user who cannot see the main server still must not be
+    shown its data, and this path never reads any.
+    """
+    if server.kind == "main" and server.dialect == "mssql":
+        source = server
+    else:
+        source = (
+            await db.execute(
+                select(ServerConnection)
+                .where(ServerConnection.kind == "main")
+                .where(ServerConnection.dialect == "mssql")
+                .order_by(ServerConnection.id)
+            )
+        ).scalars().first()
+    if source is None:
+        return None
+    return build_connection_string(
+        source.host, source.port, source.username, source.password, "master"
+    )
 
 
 @router.post("/generate", response_model=AIResponse)
@@ -41,6 +74,7 @@ async def generate(
             body.current_sql,
             server.dialect,
             server.database,
+            await _lineage_conn(db, server),
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -65,6 +99,8 @@ async def find_data(
             ai_service.find_data,
             server.host, server.port, server.username, server.password, body.prompt,
             server.dialect, server.database,
+            25, 200,
+            await _lineage_conn(db, server),
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
