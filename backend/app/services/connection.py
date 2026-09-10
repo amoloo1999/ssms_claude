@@ -146,12 +146,27 @@ def _return_to_pool(handle: ConnHandle, conn):
 
 
 @contextmanager
-def get_sql_connection(conn: Union[ConnHandle, str]):
+def get_sql_connection(conn: Union[ConnHandle, str], pool_after: bool = True):
+    """Check a connection out of the pool for the duration of the block.
+
+    ``pool_after=False`` closes the connection at the end instead of returning
+    it to the pool. Callers use it when the work just done leaves state on the
+    session -- see ``DatabaseDriver.alters_session_state``. Retiring the
+    connection is the only reliable reset: the pool key is the connection
+    string, so a session that has been through ``USE`` or ``SET`` no longer
+    matches what its key claims, and the next checkout would inherit it.
+    """
     handle = _as_handle(conn)
     conn_obj = _get_pooled_connection(handle)
     try:
         yield conn_obj
-        _return_to_pool(handle, conn_obj)
+        if pool_after:
+            _return_to_pool(handle, conn_obj)
+        else:
+            try:
+                conn_obj.close()
+            except Exception:
+                pass
     except Exception:
         try:
             conn_obj.close()
@@ -226,7 +241,13 @@ def execute_query(
         result_sets: list[dict] = []
         total_affected = 0
 
-        with get_sql_connection(handle) as conn_obj:
+        # A statement like `USE Sites` or `SET ROWCOUNT 10` is legal, is not a
+        # write, and passes every gate in the stack -- but it reconfigures the
+        # session, and this connection is about to go back into a pool shared
+        # with everyone else on this server. Retire it instead of pooling it.
+        keep_pooled = not driver.alters_session_state(sql)
+
+        with get_sql_connection(handle, pool_after=keep_pooled) as conn_obj:
             # Register this connection so the Stop button can reach it from
             # another thread. A cancelled connection raises below and is closed
             # (not pooled) by get_sql_connection's except path.

@@ -175,3 +175,31 @@ if __name__ == "__main__":
                 print(f"  FAIL  {name}: {exc}")
     print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)
+
+
+def test_explain_script_is_one_batched_script():
+    """The plan request must be a single script, not three separate calls.
+
+    Three calls each took a connection from the shared pool, with nothing
+    pinning them to the same session. If the statement landed on a connection
+    that had never been told SET SHOWPLAN_XML ON, the "estimated plan" executed
+    the user's query against the live database instead of describing it.
+    """
+    from app.services.drivers.registry import get_driver
+
+    d = get_driver("mssql")
+    script = d.explain_script("SELECT * FROM dbo.units")
+
+    # Round-trips through the same splitter execute_query uses, back into the
+    # three batches the engine requires.
+    assert d.split_batches(script) == [
+        "SET SHOWPLAN_XML ON",
+        "SELECT * FROM dbo.units",
+        "SET SHOWPLAN_XML OFF",
+    ]
+    # And the script retires its connection, so a mid-script failure can never
+    # leave SHOWPLAN on for whoever checks that connection out next.
+    assert d.alters_session_state(script) is True
+
+    # Engines without a plan capability say so rather than returning a script.
+    assert get_driver("postgres").explain_script("SELECT 1") is None

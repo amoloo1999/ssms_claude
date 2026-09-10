@@ -173,3 +173,89 @@ def _run_all():
 
 if __name__ == "__main__":
     sys.exit(1 if _run_all() else 0)
+
+
+def test_session_state_query_is_not_pooled():
+    """A connection that ran USE / SET is closed, not returned to the pool.
+
+    The pool key is (dialect, connection string), which says nothing about what
+    the session has been told to do. Pooling a connection after `USE Sites`
+    hands the next user a session pointed at the wrong database, and after
+    `SET ROWCOUNT 10` a silently truncated result -- neither raises anything.
+    """
+    from app.services import connection as conn_mod
+
+    closed = []
+
+    class FakeCursor:
+        description = None
+        rowcount = 0
+
+        def execute(self, sql, *a):
+            return self
+
+        def fetchall(self):
+            return []
+
+        def nextset(self):
+            return False
+
+    class FakeConn:
+        def cursor(self):
+            return FakeCursor()
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+        def close(self):
+            closed.append(self)
+
+    class FakeDriver:
+        dialect = "mssql"
+
+        def connect(self, conn_str):
+            return FakeConn()
+
+        def probe(self, conn):
+            pass
+
+        def prepare_cursor(self, cursor):
+            pass
+
+        def split_batches(self, sql):
+            return [sql]
+
+        def requires_commit(self):
+            return True
+
+        def serialize_value(self, v):
+            return v
+
+        def alters_session_state(self, sql):
+            from app.services.drivers.base import DatabaseDriver
+
+            return DatabaseDriver.alters_session_state(self, sql)
+
+    handle = conn_mod.ConnHandle(dialect="mssql", conn_str="SERVER=x;DATABASE=sE;")
+    object.__setattr__(handle, "_driver_override", None)
+
+    real_driver = conn_mod.ConnHandle.driver
+    conn_mod.ConnHandle.driver = property(lambda self: FakeDriver())
+    conn_mod._pools.clear()
+    try:
+        conn_mod.execute_query(handle, "SELECT 1")
+        pooled_after_read = len(conn_mod._pools.get(("mssql", handle.conn_str), []))
+        assert pooled_after_read == 1, "an ordinary SELECT should still pool"
+
+        conn_mod.execute_query(handle, "USE Sites")
+        assert not conn_mod._pools.get(("mssql", handle.conn_str)), (
+            "connection was pooled after USE -- the next checkout inherits the "
+            "wrong current database"
+        )
+        assert closed, "the session-dirtied connection should have been closed"
+    finally:
+        conn_mod.ConnHandle.driver = real_driver
+        conn_mod._pools.clear()

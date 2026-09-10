@@ -167,10 +167,14 @@ def test_mssql_connect_uses_autocommit():
 
     captured = {}
 
+    class FakeConn:
+        def add_output_converter(self, sqltype, func):
+            captured.setdefault("converters", {})[sqltype] = func
+
     def fake_connect(conn_str, **kwargs):
         captured["conn_str"] = conn_str
         captured["kwargs"] = kwargs
-        return object()  # stand-in connection; connect() must not touch it
+        return FakeConn()
 
     real_connect = mssql_mod.pyodbc.connect
     mssql_mod.pyodbc.connect = fake_connect
@@ -183,6 +187,89 @@ def test_mssql_connect_uses_autocommit():
         "mssql driver must open connections with autocommit=True "
         f"(got kwargs={captured['kwargs']})"
     )
+    # Every connection must also carry the DATETIMEOFFSET converter, or any
+    # query touching such a column dies with "ODBC SQL type -155 is not yet
+    # supported" before returning a row.
+    for sqltype, label in ((-155, "DATETIMEOFFSET"), (-150, "sql_variant"), (-151, "UDT")):
+        assert sqltype in captured.get("converters", {}), (
+            f"mssql driver must register an output converter for SQL type {sqltype} "
+            f"({label}) on every connection"
+        )
+
+
+def test_mssql_renders_opaque_types_as_hex():
+    """sql_variant / UDT columns come back as 0x... instead of failing.
+
+    sql_variant is in no user table but is all over the system catalog
+    (sys.identity_columns, sys.extended_properties, sys.configurations,
+    sys.sequences), so `SELECT *` against those used to fail outright.
+    """
+    from app.services.drivers.mssql import _hex_bytes
+
+    assert _hex_bytes(bytes([0x01, 0xAB])) == "0x01AB"
+    assert _hex_bytes(bytearray([0xFF])) == "0xFF"
+    # Non-bytes pass through untouched.
+    assert _hex_bytes(None) is None
+    assert _hex_bytes(7) == 7
+
+
+def test_session_state_statements_are_detected():
+    """USE / SET must be recognised so the connection is not pooled after them.
+
+    These are legal in SSMS and are not writes, so nothing else in the stack
+    stops them; left pooled they change the NEXT user's query.
+    """
+    d = get_driver("mssql")
+
+    for sql in (
+        "USE Sites",
+        "use sites; select 1",
+        "SELECT 1; SET ROWCOUNT 10",
+        "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+        "  set ansi_nulls off",
+        "SET SHOWPLAN_XML ON",
+    ):
+        assert d.alters_session_state(sql) is True, sql
+
+    for sql in (
+        "SELECT * FROM dbo.units",
+        "SELECT 'USE Sites' AS note",          # keyword only inside a literal
+        "-- USE Sites\nSELECT 1",              # keyword only inside a comment
+        "/* SET ROWCOUNT 5 */ SELECT 1",
+        "SELECT reset_value FROM dbo.t",       # substring, not the keyword
+        "UPDATE dbo.t SET x = 1",              # the SET of an UPDATE, one line
+    ):
+        assert d.alters_session_state(sql) is False, sql
+
+    # Every dialect inherits the same guard -- the pool is shared on all of them.
+    for name in ("postgres", "mysql", "snowflake"):
+        assert get_driver(name).alters_session_state("SET search_path TO x") is True
+
+
+def test_mssql_decodes_datetimeoffset():
+    """The -155 converter turns the raw ODBC struct into an aware datetime.
+
+    sE.dbo.lead_activity_rest.created_at is DATETIMEOFFSET; `SELECT *` on that
+    table is what surfaced the bug. Both signs of UTC offset are checked because
+    the struct carries hours and minutes separately.
+    """
+    import datetime
+    import struct
+
+    from app.services.drivers.mssql import _decode_datetimeoffset
+
+    raw = struct.pack("<6hI2h", 2026, 9, 10, 13, 11, 56, 255_291_000, -7, 0)
+    got = _decode_datetimeoffset(raw)
+    assert got == datetime.datetime(
+        2026, 9, 10, 13, 11, 56, 255291, datetime.timezone(datetime.timedelta(hours=-7))
+    ), got
+
+    ahead = _decode_datetimeoffset(struct.pack("<6hI2h", 2026, 1, 2, 3, 4, 5, 0, 5, 30))
+    assert ahead.utcoffset() == datetime.timedelta(hours=5, minutes=30), ahead
+
+    # Anything that is not the 20-byte struct passes through instead of raising,
+    # so one odd value can never fail a whole result set.
+    assert _decode_datetimeoffset(bytes([0, 1])) == bytes([0, 1])
 
 
 def _run_all():

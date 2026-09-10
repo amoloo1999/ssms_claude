@@ -7,12 +7,82 @@ byte-identical after the multi-provider refactor.
 
 from __future__ import annotations
 
+import datetime as _dt
 import re
+import struct
 from typing import Any, Optional
 
 import pyodbc
 
 from app.services.drivers.base import DatabaseDriver
+
+# SQL_SS_TIMESTAMPOFFSET -- the ODBC type code SQL Server reports for a
+# DATETIMEOFFSET column. pyodbc has no built-in conversion for it, so without
+# the output converter below ANY query that returns such a column dies with
+#   ODBC SQL type -155 is not yet supported. column-index=N type=-155
+# before a single row reaches the user. That is not a bad query -- `SELECT *`
+# from sE.dbo.lead_activity_rest is enough to trigger it.
+SQL_SS_TIMESTAMPOFFSET = -155
+
+# The other two SQL Server-specific ODBC types pyodbc has no conversion for.
+# Neither appears in any user table on this server, but both are reachable from
+# perfectly ordinary SSMS queries against the system catalog -- `SELECT * FROM
+# sys.identity_columns`, `sys.extended_properties`, `sys.configurations` and
+# `sys.sequences` all return sql_variant columns, and without a converter the
+# whole query fails the same way a DATETIMEOFFSET one did. (SQL Server's other
+# private codes are fine: -152 SQL_SS_XML and -154 SQL_SS_TIME2 pyodbc handles
+# natively, and -153 SQL_SS_TABLE cannot appear in a result set.)
+SQL_SS_VARIANT = -150
+SQL_SS_UDT = -151
+
+# SQL_SS_TIMESTAMPOFFSET_STRUCT on the wire: year, month, day, hour, minute,
+# second as 16-bit ints, then the fraction in NANOseconds as a 32-bit int, then
+# the timezone offset as (hours, minutes). 20 bytes total.
+_DTO_STRUCT = struct.Struct("<6hI2h")
+
+
+def _decode_datetimeoffset(raw: bytes) -> Any:
+    """Turn the raw DATETIMEOFFSET struct into an aware ``datetime``.
+
+    Returns the value untouched if it is not the expected 20-byte struct --
+    a future pyodbc that decodes this type natively would hand us a datetime,
+    and a surprise payload should degrade to something displayable rather than
+    fail the whole result set.
+    """
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) != _DTO_STRUCT.size:
+        return raw
+    try:
+        year, month, day, hour, minute, second, nanos, tz_h, tz_m = _DTO_STRUCT.unpack(raw)
+        return _dt.datetime(
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            nanos // 1000,  # datetime holds microseconds, the struct carries nanos
+            _dt.timezone(_dt.timedelta(hours=tz_h, minutes=tz_m)),
+        )
+    except (struct.error, ValueError):
+        return raw
+
+
+def _hex_bytes(raw: Any) -> Any:
+    """Render an opaque value the way SSMS renders binary in its grid: 0x....
+
+    Used for the two types whose bytes cannot be interpreted without metadata
+    the driver does not hand us. For SQL_SS_UDT (geography, geometry,
+    hierarchyid) this IS what SSMS shows, so it is exact parity. For
+    sql_variant it is not -- SSMS resolves the underlying subtype and shows the
+    value -- so the honest description of this converter is "the query now
+    completes and the column is legible as bytes" rather than "renders
+    identically to SSMS". Casting in SQL (``CAST(value AS varchar(max))``)
+    still gives the readable value, and now the rest of the row arrives either
+    way instead of the statement failing outright.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        return "0x" + bytes(raw).hex().upper()
+    return raw
 
 
 def _num(value: Optional[str]) -> float:
@@ -38,6 +108,7 @@ class MssqlDriver(DatabaseDriver):
     display_name = "SQL Server"
     default_port = 1433
     paramstyle = "qmark"
+    batch_separator = "GO"
     default_schema = "dbo"
     supports_cancel = True
     cross_database_supported = True
@@ -78,7 +149,14 @@ class MssqlDriver(DatabaseDriver):
         # execute_query still calls commit() explicitly; under autocommit that is
         # a harmless no-op, and the app exposes no BEGIN TRAN / rollback-on-error
         # semantics that would need autocommit off.
-        return pyodbc.connect(conn_str, timeout=10, autocommit=True)
+        conn = pyodbc.connect(conn_str, timeout=10, autocommit=True)
+        # Output converters live on the connection, so registering here covers
+        # every caller -- pooled reuse included -- because every pyodbc
+        # connection in the app is opened through this method.
+        conn.add_output_converter(SQL_SS_TIMESTAMPOFFSET, _decode_datetimeoffset)
+        conn.add_output_converter(SQL_SS_VARIANT, _hex_bytes)
+        conn.add_output_converter(SQL_SS_UDT, _hex_bytes)
+        return conn
 
     def probe(self, conn) -> None:
         # pyodbc connections expose .execute() directly (matches the original
