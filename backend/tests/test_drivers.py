@@ -167,10 +167,14 @@ def test_mssql_connect_uses_autocommit():
 
     captured = {}
 
+    class FakeConn:
+        def add_output_converter(self, sqltype, func):
+            captured.setdefault("converters", {})[sqltype] = func
+
     def fake_connect(conn_str, **kwargs):
         captured["conn_str"] = conn_str
         captured["kwargs"] = kwargs
-        return object()  # stand-in connection; connect() must not touch it
+        return FakeConn()
 
     real_connect = mssql_mod.pyodbc.connect
     mssql_mod.pyodbc.connect = fake_connect
@@ -183,6 +187,39 @@ def test_mssql_connect_uses_autocommit():
         "mssql driver must open connections with autocommit=True "
         f"(got kwargs={captured['kwargs']})"
     )
+    # Every connection must also carry the DATETIMEOFFSET converter, or any
+    # query touching such a column dies with "ODBC SQL type -155 is not yet
+    # supported" before returning a row.
+    assert -155 in captured.get("converters", {}), (
+        "mssql driver must register an output converter for SQL type -155 "
+        "(DATETIMEOFFSET) on every connection"
+    )
+
+
+def test_mssql_decodes_datetimeoffset():
+    """The -155 converter turns the raw ODBC struct into an aware datetime.
+
+    sE.dbo.lead_activity_rest.created_at is DATETIMEOFFSET; `SELECT *` on that
+    table is what surfaced the bug. Both signs of UTC offset are checked because
+    the struct carries hours and minutes separately.
+    """
+    import datetime
+    import struct
+
+    from app.services.drivers.mssql import _decode_datetimeoffset
+
+    raw = struct.pack("<6hI2h", 2026, 9, 10, 13, 11, 56, 255_291_000, -7, 0)
+    got = _decode_datetimeoffset(raw)
+    assert got == datetime.datetime(
+        2026, 9, 10, 13, 11, 56, 255291, datetime.timezone(datetime.timedelta(hours=-7))
+    ), got
+
+    ahead = _decode_datetimeoffset(struct.pack("<6hI2h", 2026, 1, 2, 3, 4, 5, 0, 5, 30))
+    assert ahead.utcoffset() == datetime.timedelta(hours=5, minutes=30), ahead
+
+    # Anything that is not the 20-byte struct passes through instead of raising,
+    # so one odd value can never fail a whole result set.
+    assert _decode_datetimeoffset(bytes([0, 1])) == bytes([0, 1])
 
 
 def _run_all():
