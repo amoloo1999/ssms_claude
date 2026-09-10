@@ -149,22 +149,19 @@ async def explain_sql(
     if not driver.supports("execution_plan"):
         return {"supported": False, "nodes": [], "warnings": [], "missing_indexes": []}
 
-    stmts = driver.explain_statements(query.sql)
-    if stmts is None:
+    script = driver.explain_script(query.sql)
+    if script is None:
         return {"supported": False, "nodes": [], "warnings": [], "missing_indexes": []}
 
-    preamble, statement, epilogue = stmts
     conn_str = await get_connection_string(db, query.server_id, query.database)
 
-    # The SET statements have to be their own batches, and the epilogue must run
-    # even when the statement itself fails — otherwise the pooled connection
-    # goes back with SHOWPLAN still on and every later query on it returns a
-    # plan instead of results.
-    await execute_query_async(conn_str, preamble)
-    try:
-        result = await execute_query_async(conn_str, statement)
-    finally:
-        await execute_query_async(conn_str, epilogue)
+    # One call, so the SET preamble, the statement and the SET epilogue are
+    # guaranteed to share a connection. Three separate calls each took a
+    # connection from the shared pool with nothing pinning them together — if
+    # the statement landed on a different session than the preamble, the
+    # "estimated plan" ran the query for real. execute_query splits the script
+    # back into batches, which is all the engine actually requires.
+    result = await execute_query_async(conn_str, script)
 
     if result["error"]:
         return {

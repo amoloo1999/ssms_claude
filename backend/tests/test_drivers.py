@@ -190,10 +190,60 @@ def test_mssql_connect_uses_autocommit():
     # Every connection must also carry the DATETIMEOFFSET converter, or any
     # query touching such a column dies with "ODBC SQL type -155 is not yet
     # supported" before returning a row.
-    assert -155 in captured.get("converters", {}), (
-        "mssql driver must register an output converter for SQL type -155 "
-        "(DATETIMEOFFSET) on every connection"
-    )
+    for sqltype, label in ((-155, "DATETIMEOFFSET"), (-150, "sql_variant"), (-151, "UDT")):
+        assert sqltype in captured.get("converters", {}), (
+            f"mssql driver must register an output converter for SQL type {sqltype} "
+            f"({label}) on every connection"
+        )
+
+
+def test_mssql_renders_opaque_types_as_hex():
+    """sql_variant / UDT columns come back as 0x... instead of failing.
+
+    sql_variant is in no user table but is all over the system catalog
+    (sys.identity_columns, sys.extended_properties, sys.configurations,
+    sys.sequences), so `SELECT *` against those used to fail outright.
+    """
+    from app.services.drivers.mssql import _hex_bytes
+
+    assert _hex_bytes(bytes([0x01, 0xAB])) == "0x01AB"
+    assert _hex_bytes(bytearray([0xFF])) == "0xFF"
+    # Non-bytes pass through untouched.
+    assert _hex_bytes(None) is None
+    assert _hex_bytes(7) == 7
+
+
+def test_session_state_statements_are_detected():
+    """USE / SET must be recognised so the connection is not pooled after them.
+
+    These are legal in SSMS and are not writes, so nothing else in the stack
+    stops them; left pooled they change the NEXT user's query.
+    """
+    d = get_driver("mssql")
+
+    for sql in (
+        "USE Sites",
+        "use sites; select 1",
+        "SELECT 1; SET ROWCOUNT 10",
+        "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+        "  set ansi_nulls off",
+        "SET SHOWPLAN_XML ON",
+    ):
+        assert d.alters_session_state(sql) is True, sql
+
+    for sql in (
+        "SELECT * FROM dbo.units",
+        "SELECT 'USE Sites' AS note",          # keyword only inside a literal
+        "-- USE Sites\nSELECT 1",              # keyword only inside a comment
+        "/* SET ROWCOUNT 5 */ SELECT 1",
+        "SELECT reset_value FROM dbo.t",       # substring, not the keyword
+        "UPDATE dbo.t SET x = 1",              # the SET of an UPDATE, one line
+    ):
+        assert d.alters_session_state(sql) is False, sql
+
+    # Every dialect inherits the same guard -- the pool is shared on all of them.
+    for name in ("postgres", "mysql", "snowflake"):
+        assert get_driver(name).alters_session_state("SET search_path TO x") is True
 
 
 def test_mssql_decodes_datetimeoffset():

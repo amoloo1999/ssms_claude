@@ -24,6 +24,17 @@ from app.services.drivers.base import DatabaseDriver
 # from sE.dbo.lead_activity_rest is enough to trigger it.
 SQL_SS_TIMESTAMPOFFSET = -155
 
+# The other two SQL Server-specific ODBC types pyodbc has no conversion for.
+# Neither appears in any user table on this server, but both are reachable from
+# perfectly ordinary SSMS queries against the system catalog -- `SELECT * FROM
+# sys.identity_columns`, `sys.extended_properties`, `sys.configurations` and
+# `sys.sequences` all return sql_variant columns, and without a converter the
+# whole query fails the same way a DATETIMEOFFSET one did. (SQL Server's other
+# private codes are fine: -152 SQL_SS_XML and -154 SQL_SS_TIME2 pyodbc handles
+# natively, and -153 SQL_SS_TABLE cannot appear in a result set.)
+SQL_SS_VARIANT = -150
+SQL_SS_UDT = -151
+
 # SQL_SS_TIMESTAMPOFFSET_STRUCT on the wire: year, month, day, hour, minute,
 # second as 16-bit ints, then the fraction in NANOseconds as a 32-bit int, then
 # the timezone offset as (hours, minutes). 20 bytes total.
@@ -56,6 +67,24 @@ def _decode_datetimeoffset(raw: bytes) -> Any:
         return raw
 
 
+def _hex_bytes(raw: Any) -> Any:
+    """Render an opaque value the way SSMS renders binary in its grid: 0x....
+
+    Used for the two types whose bytes cannot be interpreted without metadata
+    the driver does not hand us. For SQL_SS_UDT (geography, geometry,
+    hierarchyid) this IS what SSMS shows, so it is exact parity. For
+    sql_variant it is not -- SSMS resolves the underlying subtype and shows the
+    value -- so the honest description of this converter is "the query now
+    completes and the column is legible as bytes" rather than "renders
+    identically to SSMS". Casting in SQL (``CAST(value AS varchar(max))``)
+    still gives the readable value, and now the rest of the row arrives either
+    way instead of the statement failing outright.
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        return "0x" + bytes(raw).hex().upper()
+    return raw
+
+
 def _num(value: Optional[str]) -> float:
     """SHOWPLAN attributes are strings and frequently absent."""
     try:
@@ -79,6 +108,7 @@ class MssqlDriver(DatabaseDriver):
     display_name = "SQL Server"
     default_port = 1433
     paramstyle = "qmark"
+    batch_separator = "GO"
     default_schema = "dbo"
     supports_cancel = True
     cross_database_supported = True
@@ -124,6 +154,8 @@ class MssqlDriver(DatabaseDriver):
         # every caller -- pooled reuse included -- because every pyodbc
         # connection in the app is opened through this method.
         conn.add_output_converter(SQL_SS_TIMESTAMPOFFSET, _decode_datetimeoffset)
+        conn.add_output_converter(SQL_SS_VARIANT, _hex_bytes)
+        conn.add_output_converter(SQL_SS_UDT, _hex_bytes)
         return conn
 
     def probe(self, conn) -> None:

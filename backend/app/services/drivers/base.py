@@ -15,9 +15,24 @@ look the driver back up.
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Optional
+
+# Statements that reconfigure the session rather than just reading or writing
+# rows. Anchored to the start of a statement so the ``SET`` of an
+# ``UPDATE ... SET`` clause on one line is not mistaken for a session option.
+# Kept here, self-contained, so the driver layer stays free of app imports --
+# ``services.permissions`` has a similar strip for a different purpose.
+_SESSION_STATE_RE = re.compile(r"(?:^|;)\s*(USE|SET)\b", re.IGNORECASE | re.MULTILINE)
+
+
+def _strip_sql_literals(sql: str) -> str:
+    """Blank out string literals and comments so keywords inside them don't match."""
+    cleaned = re.sub(r"'(?:''|[^'])*'", "''", sql)
+    cleaned = re.sub(r"--[^\n]*", "", cleaned)
+    return re.sub(r"/\*[\s\S]*?\*/", "", cleaned)
 
 
 @dataclass(frozen=True)
@@ -119,6 +134,9 @@ class DatabaseDriver(ABC):
         leave ``supports_cancel = False`` and return False here."""
         return False
 
+    # Client-side batch separator, if the engine has one. Only T-SQL does.
+    batch_separator: Optional[str] = None
+
     def prepare_cursor(self, cursor) -> None:
         """Run any per-cursor preamble before the user's batches. No-op by
         default; SQL Server uses it for ``SET NOCOUNT ON``."""
@@ -129,12 +147,56 @@ class DatabaseDriver(ABC):
         transaction before the connection returns to the pool."""
         return True
 
+    def alters_session_state(self, sql: str) -> bool:
+        """Whether running this SQL leaves state behind on the connection.
+
+        A pooled connection is shared by every user of that server, but the
+        pool key is only (dialect, connection string) -- it says nothing about
+        what the session has been *told* to do. ``USE Sites`` or
+        ``SET ROWCOUNT 10`` therefore rides along on the pooled connection and
+        silently changes the NEXT person's query: unqualified names resolve in
+        the wrong database, or their result set is quietly truncated. Both are
+        legal statements in SSMS and neither is a write, so nothing else in the
+        stack stops them.
+
+        Rather than try to enumerate and undo every session option, the caller
+        simply declines to pool a connection this returns True for. The cost of
+        a false positive is one reconnect, so the match is deliberately
+        conservative -- a multi-line ``UPDATE`` with ``SET`` on its own line
+        trips it too, and that is fine.
+        """
+        cleaned = _strip_sql_literals(sql or "")
+        return bool(_SESSION_STATE_RE.search(cleaned))
+
     # ── SQL shaping ──────────────────────────────────────────────────────────
     def split_batches(self, sql: str) -> list[str]:
         """Split a script into independently-executed batches. Only SQL Server
         has a client-side batch separator (``GO``); everything else runs as a
         single batch."""
         return [sql]
+
+    def explain_script(self, sql: str) -> Optional[str]:
+        """The whole plan request as ONE script, to run on ONE connection.
+
+        ``explain_statements`` returns the preamble/statement/epilogue as
+        separate batches because the engine requires that. They are joined here
+        rather than executed as three separate calls, because each call checks
+        a connection out of the shared pool: nothing guarantees the middle
+        statement lands on the same session that was told to return a plan. If
+        it does not, the "estimated plan" silently EXECUTES the user's query
+        against the live database instead of describing it.
+
+        Sent as one script, the preamble, statement and epilogue share a cursor,
+        and the connection is retired afterwards (the preamble is a ``SET``, so
+        ``alters_session_state`` is True) -- which also means a statement that
+        errors part-way through can never leave SHOWPLAN on for the next user.
+        """
+        stmts = self.explain_statements(sql)
+        if stmts is None:
+            return None
+        sep = self.batch_separator
+        joiner = f"\n{sep}\n" if sep else "\n"
+        return joiner.join(stmts)
 
     def quote_ident(self, name: str) -> str:
         """Quote a single identifier. ANSI default: double quotes."""
