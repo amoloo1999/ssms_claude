@@ -80,6 +80,8 @@ export interface User {
   is_approver: boolean;
   /** Exempt from a connection's read_only policy — may write even on Aurora. */
   can_write_anywhere: boolean;
+  /** The one schema a non-RevMan may write to. SQL Server enforces it. */
+  sandbox: { host: string; port: number; database: string; schema_name: string } | null;
 }
 
 export interface MissingTable {

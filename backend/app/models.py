@@ -360,6 +360,13 @@ class ExportRequest(BaseModel):
     format: str = "csv"  # csv or xlsx
 
 
+class SandboxInfo(BaseModel):
+    host: str
+    port: int
+    database: str
+    schema_name: str
+
+
 class UserResponse(BaseModel):
     email: str
     name: str
@@ -368,6 +375,8 @@ class UserResponse(BaseModel):
     is_approver: bool = False
     # Exempt from a connection's read_only policy (WRITE_ANYWHERE_EMAILS).
     can_write_anywhere: bool = False
+    # The one schema a non-RevMan may write to (SANDBOX_USERS), if any.
+    sandbox: Optional[SandboxInfo] = None
 
     class Config:
         from_attributes = True

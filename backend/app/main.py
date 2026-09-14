@@ -10,9 +10,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import FileResponse
 from sqlalchemy import select
 
-from app.config import get_settings
+from app.config import SANDBOX_USERS, get_settings
 from app.database import init_db, async_session
-from app.models import ServerConnection
+from app.models import ServerConnection, TablePermission
 from app.services.drivers import get_driver
 from app.auth import router as auth_router
 from app.routers.servers import router as servers_router
@@ -83,10 +83,52 @@ async def seed_servers_from_config():
             await db.rollback()  # another worker already seeded
 
 
+async def seed_sandbox_read_grants():
+    """Give each sandbox user database-wide READ on their sandbox's database.
+
+    A sandbox user creates and edits tables in their own schema, but they also
+    need to read the surrounding database (that is what a sandbox is for —
+    copying real data into a scratch table). This restores that read for a
+    brand-NEW sandbox user only: if they already have any grant, we leave their
+    grants exactly as an approver has set them, so a later revocation is never
+    undone on the next restart. Reads run under the server's shared login; this
+    row is only what the app's grant check consults.
+    """
+    if not SANDBOX_USERS:
+        return
+    async with async_session() as db:
+        servers = (await db.execute(select(ServerConnection))).scalars().all()
+        for email, sandbox in SANDBOX_USERS.items():
+            existing = (
+                await db.execute(
+                    select(TablePermission).where(TablePermission.user_email == email)
+                )
+            ).scalars().first()
+            if existing is not None:
+                continue  # not new — respect whatever an approver has set
+            for server in servers:
+                if sandbox.covers_server(server):
+                    db.add(
+                        TablePermission(
+                            user_email=email,
+                            server_id=server.id,
+                            database=sandbox.database,
+                            schema_name="*",
+                            table_name="*",
+                            granted_by="system:sandbox-seed",
+                        )
+                    )
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()  # another worker seeded, or a race on the unique key
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await seed_servers_from_config()
+    await seed_sandbox_read_grants()
     yield
 
 

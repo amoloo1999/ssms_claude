@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -61,6 +62,51 @@ GUEST_EMAILS: frozenset[str] = frozenset({
 })
 
 
+@dataclass(frozen=True)
+class Sandbox:
+    """A schema one non-RevMan user may create tables in and change data in.
+
+    The app does NOT enforce the "only your own tables" part — SQL Server does.
+    Writes from a sandbox user run under ``login``, a SQL login that owns
+    ``schema``, holds CREATE TABLE, and can write nowhere else. The regex
+    denylist in services/permissions.py is not a boundary anyone should trust
+    with prod writes; the login is. See ops/sql/sandbox_mfriday.sql for the
+    server side, and its password lives in SANDBOX_PASSWORDS in .env.
+
+    ``host`` and ``port`` pin the sandbox to the SQL Server instance the login
+    was created on, so a server row pointing somewhere else never tries it.
+    """
+
+    host: str
+    port: int
+    database: str
+    schema: str
+    login: str
+
+    def covers_server(self, server) -> bool:
+        return (
+            (getattr(server, "dialect", None) or "mssql") == "mssql"
+            and (server.host or "").lower() == self.host.lower()
+            and (server.port or 1433) == self.port
+        )
+
+    def covers(self, server, database: str | None) -> bool:
+        return self.covers_server(server) and (database or "").lower() == self.database.lower()
+
+
+# Users with a sandbox. Everything else about them is unchanged: view-only,
+# tables hidden until granted. Row edits in the table browser stay RevMan-only.
+SANDBOX_USERS: dict[str, Sandbox] = {
+    "mfriday@williamwarren.com": Sandbox(
+        host="13.57.123.119",
+        port=1433,
+        database="Sites",
+        schema="sandbox_mfriday",
+        login="ssms_mfriday",
+    ),
+}
+
+
 def is_revman(email: str | None) -> bool:
     return bool(email) and email.lower() in {e.lower() for e in REVMAN_EMAILS}
 
@@ -81,6 +127,21 @@ def can_write_anywhere(email: str | None) -> bool:
 def can_write_on_mobile(email: str | None) -> bool:
     """May write from the phone/tablet surface. See MOBILE_WRITE_EMAILS."""
     return bool(email) and email.lower() in {e.lower() for e in MOBILE_WRITE_EMAILS}
+
+
+def sandbox_for(email: str | None) -> Sandbox | None:
+    """The user's sandbox, if they have one. RevMan never does — they already
+    write through the shared login, and routing them through a restricted one
+    would only take access away."""
+    if not email or is_revman(email):
+        return None
+    return {e.lower(): s for e, s in SANDBOX_USERS.items()}.get(email.lower())
+
+
+def sandbox_password(login: str) -> str:
+    """"" when unset, and callers must then refuse the write — never fall back
+    to the shared login."""
+    return (get_settings().sandbox_passwords.get(login) or "").strip()
 
 
 class Settings(BaseSettings):
@@ -111,6 +172,10 @@ class Settings(BaseSettings):
     scheduler_token: str = ""
     scheduler_token_param: str = ""
     aws_region: str = "us-west-1"
+
+    # Sandbox login passwords, keyed by login name. JSON in .env:
+    #   SANDBOX_PASSWORDS={"ssms_mfriday": "..."}
+    sandbox_passwords: dict[str, str] = {}
 
     # Anthropic / Claude AI assistant
     anthropic_api_key: str = ""
