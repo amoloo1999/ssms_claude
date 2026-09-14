@@ -147,12 +147,12 @@ def _fake_boto3(monkeypatch, ssm):
 
 def test_password_prefers_parameter_store(monkeypatch):
     settings = config.get_settings()
-    monkeypatch.setattr(settings, "sandbox_passwords_param", "/ssms/sandbox_passwords")
+    monkeypatch.setattr(settings, "sandbox_passwords_param", "/sql-studio/sandbox_passwords")
     monkeypatch.setitem(settings.sandbox_passwords, SANDBOX.login, "env-value")  # must be ignored
 
     class SSM:
         def get_parameter(self, Name, WithDecryption):
-            assert Name == "/ssms/sandbox_passwords" and WithDecryption is True
+            assert Name == "/sql-studio/sandbox_passwords" and WithDecryption is True
             return {"Parameter": {"Value": '{"ssms_mfriday": "from-ssm"}'}}
 
     _fake_boto3(monkeypatch, SSM())
@@ -162,7 +162,7 @@ def test_password_prefers_parameter_store(monkeypatch):
 
 def test_parameter_store_failure_falls_back_to_env(monkeypatch):
     settings = config.get_settings()
-    monkeypatch.setattr(settings, "sandbox_passwords_param", "/ssms/sandbox_passwords")
+    monkeypatch.setattr(settings, "sandbox_passwords_param", "/sql-studio/sandbox_passwords")
     monkeypatch.setitem(settings.sandbox_passwords, SANDBOX.login, "env-value")
 
     class SSM:
