@@ -183,7 +183,9 @@ class Settings(BaseSettings):
     #      default name so no .env edit is needed to switch a box onto it.
     #   2. sandbox_passwords — the same JSON inline in .env, the fallback.
     sandbox_passwords: dict[str, str] = {}
-    sandbox_passwords_param: str = "/ssms/sandbox_passwords"
+    # NB: an SSM parameter name may NOT start with "ssm" or "aws" (reserved,
+    # case-insensitive) — so this is /sql-studio/..., not /ssms/....
+    sandbox_passwords_param: str = "/sql-studio/sandbox_passwords"
 
     # Anthropic / Claude AI assistant
     anthropic_api_key: str = ""
