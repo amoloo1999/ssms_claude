@@ -14,7 +14,14 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.config import can_write_anywhere, can_write_on_mobile, is_revman
+from app.config import (
+    Sandbox,
+    can_write_anywhere,
+    can_write_on_mobile,
+    is_revman,
+    sandbox_for,
+    sandbox_password,
+)
 
 # The surfaces the frontend can declare. Anything unrecognised is treated as
 # 'desktop', which is the permissive value — see surface_allows_writes for why
@@ -47,6 +54,8 @@ def surface_allows_writes(surface: str, email: str | None) -> bool:
         return can_write_on_mobile(email)
     return True
 from app.models import ServerConnection, TablePermission
+from app.services.connection import get_connection_string
+from app.services.drivers import ConnHandle, get_driver
 
 
 def can_access_server(user: dict, server: ServerConnection) -> bool:
@@ -95,10 +104,20 @@ async def get_user_grants(
         select(TablePermission).where(TablePermission.user_email == email)
     )
     grants = result.scalars().all()
-    return {
+    out = {
         (g.server_id, g.database.lower(), g.schema_name.lower(), g.table_name.lower())
         for g in grants
     }
+    # A sandbox user can always see their own schema. Implicit rather than a
+    # TablePermission row, so it can't be revoked by accident — and removing
+    # them from SANDBOX_USERS removes it.
+    sandbox = sandbox_for(email)
+    if sandbox is not None:
+        servers = (await db.execute(select(ServerConnection))).scalars().all()
+        for s in servers:
+            if sandbox.covers_server(s):
+                out.add((s.id, sandbox.database.lower(), sandbox.schema.lower(), "*"))
+    return out
 
 
 def _wc_match(grant_value: str, actual: str) -> bool:
@@ -240,8 +259,13 @@ async def check_query_permissions(
     default_schema: str = "dbo",
     write_policy: str = "read_write",
     surface: str = "desktop",
+    sandbox: Sandbox | None = None,
 ) -> tuple[bool, dict]:
     """Validate a SQL string before it is executed.
+
+    ``sandbox`` lifts the role gate's SELECT-only rule and nothing else. Only
+    ``authorize_query`` passes it, because it is only safe when the statement
+    then runs under the sandbox login — which is what authorize_query guarantees.
 
     Two independent gates:
 
@@ -291,9 +315,11 @@ async def check_query_permissions(
         return True, {}
 
     ok, reason = is_select_only(sql)
-    if not ok:
+    if not ok and sandbox is None:
         return False, {"detail": reason or "Write operations are not allowed for view-only users.", "missing_tables": []}
 
+    # Still runs for a sandbox write: `INSERT INTO sandbox.x SELECT ... FROM
+    # dbo.Units` reads dbo.Units, and that needs a grant like any other read.
     grants = await get_user_grants(db, user["email"])
     refs = extract_referenced_tables(sql, database, default_schema)
     missing: list[dict] = []
@@ -314,6 +340,57 @@ async def check_query_permissions(
             "missing_tables": missing,
         }
     return True, {}
+
+
+async def authorize_query(
+    db: AsyncSession,
+    user: dict,
+    server: ServerConnection,
+    database: str,
+    sql: str,
+    surface: str = "desktop",
+) -> tuple[bool, dict, ConnHandle | None]:
+    """Check a statement AND choose the credentials it runs under.
+
+    Every path that executes user-supplied SQL goes through here. The two
+    decisions are made together on purpose: a sandbox write is only safe
+    because it runs as the sandbox login, and if the check and the connection
+    were chosen in separate places, one call site that forgot to pass the
+    sandbox along would send an allowed write out under the shared login.
+
+    Returns (allowed, error_payload, connection). Reads — including a sandbox
+    user's reads — use the server's shared login exactly as before. Only a
+    sandbox user's writes switch to the sandbox login, and if its password is
+    not configured the write is refused rather than falling back.
+    """
+    sandbox = sandbox_for(user.get("email", ""))
+    if sandbox is not None and not sandbox.covers(server, database):
+        sandbox = None
+
+    allowed, payload = await check_query_permissions(
+        db, user, server.id, database, sql,
+        get_driver(server.dialect).default_schema_for(server.database),
+        write_policy=server.write_policy or "read_write",
+        surface=surface,
+        sandbox=sandbox,
+    )
+    if not allowed:
+        return False, payload, None
+
+    if sandbox is None or is_select_only(sql)[0]:
+        return True, {}, await get_connection_string(db, server.id, database)
+
+    password = sandbox_password(sandbox.login)
+    if not password:
+        return False, {
+            "detail": "Your sandbox isn't set up on the server yet. Ask an admin.",
+            "missing_tables": [],
+        }, None
+    driver = get_driver(server.dialect)
+    conn_str = driver.build_connection_string(
+        server.host, server.port, sandbox.login, password, database
+    )
+    return True, {}, ConnHandle(server.dialect, conn_str)
 
 
 def filter_visible_tables(

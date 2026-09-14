@@ -30,9 +30,8 @@ from app.models import (
     ServerConnection,
 )
 from app.services.audit import record
-from app.services.connection import get_connection_string, execute_query_async
-from app.services.drivers import get_driver
-from app.services.permissions import can_access_server, check_query_permissions
+from app.services.connection import execute_query_async
+from app.services.permissions import authorize_query, can_access_server
 from app.services.schedules import evaluate_condition, is_valid_condition
 
 router = APIRouter(prefix="/api/schedules", tags=["schedules"])
@@ -216,11 +215,8 @@ async def execute_schedule(
         return {"ran": False, "reason": "server_missing", "paused": True}
 
     owner = {"email": schedule.owner_email}
-    driver = get_driver(server.dialect)
-    allowed, payload = await check_query_permissions(
-        db, owner, schedule.server_id, schedule.database, schedule.sql,
-        driver.default_schema_for(server.database),
-        write_policy=server.write_policy or "read_write",
+    allowed, payload, conn_str = await authorize_query(
+        db, owner, server, schedule.database, schedule.sql
     )
     if not allowed:
         # Pause, don't fail silently — the handoff's rule, and the difference
@@ -235,7 +231,6 @@ async def execute_schedule(
         await db.commit()
         return {"ran": False, "reason": "access_revoked", "paused": True}
 
-    conn_str = await get_connection_string(db, schedule.server_id, schedule.database)
     result = await execute_query_async(conn_str, schedule.sql)
 
     row_count = result.get("row_count") or 0

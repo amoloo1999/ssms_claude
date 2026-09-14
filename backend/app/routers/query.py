@@ -12,11 +12,11 @@ from app.models import (
     ServerConnection,
     QueryHistory,
 )
-from app.services.connection import get_connection_string, execute_query_async, cancel_query
+from app.services.connection import execute_query_async, cancel_query
 from app.services.drivers import get_driver
 from app.services.permissions import (
+    authorize_query,
     can_access_server,
-    check_query_permissions,
     client_surface,
     is_select_only,
 )
@@ -48,11 +48,8 @@ async def execute_sql(
     if not server or not can_access_server(user, server):
         raise HTTPException(status_code=404, detail="Server not found")
 
-    allowed, payload = await check_query_permissions(
-        db, user, query.server_id, query.database, query.sql,
-        get_driver(server.dialect).default_schema_for(server.database),
-        write_policy=server.write_policy or "read_write",
-        surface=client_surface(request),
+    allowed, payload, conn_str = await authorize_query(
+        db, user, server, query.database, query.sql, client_surface(request)
     )
     if not allowed:
         # A refused statement is worth recording — a pattern of denials is a
@@ -70,7 +67,6 @@ async def execute_sql(
         )
         raise HTTPException(status_code=403, detail=payload)
 
-    conn_str = await get_connection_string(db, query.server_id, query.database)
     result = await execute_query_async(conn_str, query.sql, query_id=query.query_id)
 
     # Writes on any connection are recorded. Reads are not — they are already in
@@ -137,11 +133,8 @@ async def explain_sql(
 
     driver = get_driver(server.dialect)
 
-    allowed, payload = await check_query_permissions(
-        db, user, query.server_id, query.database, query.sql,
-        driver.default_schema_for(server.database),
-        write_policy=server.write_policy or "read_write",
-        surface=client_surface(request),
+    allowed, payload, conn_str = await authorize_query(
+        db, user, server, query.database, query.sql, client_surface(request)
     )
     if not allowed:
         raise HTTPException(status_code=403, detail=payload)
@@ -152,8 +145,6 @@ async def explain_sql(
     script = driver.explain_script(query.sql)
     if script is None:
         return {"supported": False, "nodes": [], "warnings": [], "missing_indexes": []}
-
-    conn_str = await get_connection_string(db, query.server_id, query.database)
 
     # One call, so the SET preamble, the statement and the SET epilogue are
     # guaranteed to share a connection. Three separate calls each took a

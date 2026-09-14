@@ -11,6 +11,7 @@ from app.config import (
     is_approver,
     is_guest,
     can_write_anywhere,
+    sandbox_for,
 )
 from app.database import get_db
 from app.models import User, UserResponse
@@ -84,6 +85,7 @@ async def auth_callback(request: Request, db: AsyncSession = Depends(get_db)):
 
 def _decorate_user(user: dict) -> dict:
     email = user.get("email", "")
+    sandbox = sandbox_for(email)
     return {
         **user,
         "role": "revman" if is_revman(email) else "user",
@@ -92,6 +94,17 @@ def _decorate_user(user: dict) -> dict:
         # tell this user the truth about a read-only server instead of showing
         # everyone the same blanket "writes blocked".
         "can_write_anywhere": can_write_anywhere(email),
+        # So the connection bar can say where this user's writes are allowed.
+        "sandbox": (
+            {
+                "host": sandbox.host,
+                "port": sandbox.port,
+                "database": sandbox.database,
+                "schema_name": sandbox.schema,
+            }
+            if sandbox
+            else None
+        ),
     }
 
 

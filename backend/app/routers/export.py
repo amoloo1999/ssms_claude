@@ -8,11 +8,10 @@ from starlette.requests import Request
 from app.database import get_db
 from app.auth import require_auth
 from app.models import ExportRequest, ServerConnection
-from app.services.connection import get_connection_string, execute_query_async
-from app.services.drivers import get_driver
+from app.services.connection import execute_query_async
 from app.services.permissions import (
+    authorize_query,
     can_access_server,
-    check_query_permissions,
     client_surface,
 )
 from app.services.audit import record
@@ -32,19 +31,15 @@ async def export_data(
     ).scalar_one_or_none()
     if not server or not can_access_server(user, server):
         raise HTTPException(status_code=404, detail="Server not found")
-    allowed, payload = await check_query_permissions(
-        db, user, export_req.server_id, export_req.database, export_req.sql,
-        get_driver(server.dialect).default_schema_for(server.database),
-        # This path executes the SQL it is handed, so it needs the same
-        # connection-level write gate as /query/execute. Without it, a write
-        # could reach a read-only connection through the export endpoint.
-        write_policy=server.write_policy or "read_write",
-        surface=client_surface(request),
+    # This path executes the SQL it is handed, so it goes through the same gate
+    # as /query/execute. Without it, a write could reach a read-only connection
+    # through the export endpoint.
+    allowed, payload, conn_str = await authorize_query(
+        db, user, server, export_req.database, export_req.sql, client_surface(request)
     )
     if not allowed:
         raise HTTPException(status_code=403, detail=payload)
 
-    conn_str = await get_connection_string(db, export_req.server_id, export_req.database)
     result = await execute_query_async(conn_str, export_req.sql)
 
     if result["error"]:

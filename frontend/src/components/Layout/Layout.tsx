@@ -120,6 +120,15 @@ function Layout({ ctx }: Props) {
   // same blanket message.
   const exempt = !!ctx.user?.can_write_anywhere;
   const serverReadOnly = activeServer?.write_policy === 'read_only';
+  // Mirrors Sandbox.covers in backend/app/config.py.
+  const sandbox = ctx.user?.sandbox;
+  const inSandbox =
+    !!sandbox &&
+    !!activeServer &&
+    activeServer.dialect === 'mssql' &&
+    activeServer.host.toLowerCase() === sandbox.host.toLowerCase() &&
+    (activeServer.port || 1433) === sandbox.port &&
+    (ctx.activeQuery?.database || '').toLowerCase() === sandbox.database.toLowerCase();
   const writePolicy =
     serverReadOnly && !exempt
       ? 'READ-ONLY CONNECTION — WRITES BLOCKED FOR ALL USERS'
@@ -127,6 +136,8 @@ function Layout({ ctx }: Props) {
       ? 'READ-ONLY CONNECTION — WRITES ALLOWED FOR YOU'
       : isRevMan
       ? 'WRITES ALLOWED'
+      : inSandbox
+      ? `VIEW ONLY — WRITES ALLOWED IN ${sandbox!.schema_name.toUpperCase()} ONLY`
       : 'VIEW ONLY — WRITES BLOCKED';
 
   // Below the mobile breakpoint the desktop shell is replaced outright rather
