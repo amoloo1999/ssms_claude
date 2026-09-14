@@ -13,11 +13,10 @@
       CREATE TABLE dbo.anything fails.
     - A schema owner can insert, update, delete, alter and drop everything in
       it. That is the "only tables he creates" rule, enforced by the engine.
-    - No read on dbo. The app runs a sandbox user's WRITES under this login.
-      Dynamic SQL (EXEC('...')) hides table names from the app's grant check, so
-      whatever this login can SELECT is what Mason can read through a write.
-      Grant SELECT per table, matching his grants in the app (step 5), rather
-      than db_datareader.
+    - Read on Sites (db_datareader, step 5). Mason keeps his prior all-of-Sites
+      read; his normal reads use the app's shared login, and this lets a write
+      that reads (INSERT ... SELECT FROM dbo.X) work under this login too. If he
+      should instead be limited to specific tables, use per-table GRANT SELECT.
     - The schema is owned by ssms_mfriday, not dbo. With dbo as owner, objects
       in it would ownership-chain into dbo tables.
 
@@ -84,11 +83,15 @@ BEGIN
 END;
 GO
 
--- 5. Reads through writes (optional, per table) ------------------------------
--- Only needed if Mason should be able to copy prod data into his tables, e.g.
+-- 5. Read access to Sites -----------------------------------------------------
+-- Mason keeps read access to all of Sites (his access before the sandbox). His
+-- READS run under the app's shared login, not this one — but a write that reads,
 --   INSERT INTO sandbox_mfriday.x SELECT ... FROM dbo.Units
--- Mirror the Sites tables he is granted in the app (Admin tab), one line each:
--- GRANT SELECT ON dbo.<table> TO ssms_mfriday;
+-- runs entirely under THIS login, so it needs read on Sites too. db_datareader
+-- adds no exposure beyond the all-of-Sites read he already has in the app.
+-- If his access should instead be a specific list of tables, drop the role add
+-- below and GRANT SELECT ON dbo.<table> TO ssms_mfriday per table.
+ALTER ROLE db_datareader ADD MEMBER ssms_mfriday;
 GO
 
 -- 6. Verify -------------------------------------------------------------------

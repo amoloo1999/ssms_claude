@@ -25,13 +25,14 @@ from app.services.audit import record
 router = APIRouter(prefix="/api/query", tags=["query"])
 
 
-def _is_write(sql: str) -> bool:
+def _is_write(sql: str, driver=None) -> bool:
     """Whether a statement mutates anything.
 
-    Reuses the same denylist that gates view-only users, so "what counts as a
-    write" has one definition rather than two that can drift apart.
+    Reuses the same read test that gates view-only users, so "what counts as a
+    write" has one definition rather than two that can drift apart. Driver-aware
+    so a write hiding after a GO is still logged as a write.
     """
-    ok, _ = is_select_only(sql or "")
+    ok, _ = is_select_only(sql or "", driver)
     return not ok
 
 
@@ -72,7 +73,7 @@ async def execute_sql(
     # Writes on any connection are recorded. Reads are not — they are already in
     # per-user history, and auditing every SELECT would bury the events that
     # matter under noise.
-    if _is_write(query.sql) and not result.get("error"):
+    if _is_write(query.sql, get_driver(server.dialect)) and not result.get("error"):
         await record(
             db,
             actor=user["email"],

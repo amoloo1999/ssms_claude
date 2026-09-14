@@ -26,6 +26,7 @@ pytest.importorskip("httpx")
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
 
 from app import config  # noqa: E402
@@ -183,7 +184,9 @@ def test_writes_outside_the_sandbox_database_are_refused(db, password):
         db, MASON, "CREATE TABLE sandbox_mfriday.t (id int)", database="Stortrack"
     )
     assert allowed is False and conn is None
-    assert "not allowed" in payload["detail"]
+    # Outside the sandbox DB he is a plain view-only user, so a CREATE is refused
+    # by the SELECT-only rule.
+    assert "SELECT" in payload["detail"]
 
 
 def test_writes_on_another_instance_are_refused(db, password):
@@ -308,6 +311,53 @@ def test_schedule_runner_uses_sandbox_login(client, db):
     assert r.status_code == 200, r.text
     assert r.json()["ran"] is True
     assert _uid(client.executed[-1][0]) == SANDBOX.login
+
+
+def test_seed_grants_all_of_sites_read_to_a_new_sandbox_user(db):
+    from app import main
+
+    async def _go():
+        # main.async_session is bound to the real settings DB; point it at ours.
+        orig = main.async_session
+        main.async_session = db
+        try:
+            await main.seed_sandbox_read_grants()
+            async with db() as s:
+                rows = (await s.execute(
+                    select(TablePermission).where(TablePermission.user_email == MASON["email"])
+                )).scalars().all()
+            return rows
+        finally:
+            main.async_session = orig
+
+    rows = _run(_go())
+    # One db-wide read grant on Sites, on the sandbox instance (id=1), not the
+    # other server (id=2) or the read-only one (id=3).
+    assert [(r.server_id, r.database, r.schema_name, r.table_name) for r in rows] == [
+        (1, "Sites", "*", "*")
+    ]
+
+
+def test_seed_leaves_an_existing_user_alone(db):
+    from app import main
+
+    _grant(db, MASON, "Units")  # an approver already narrowed him to one table
+
+    async def _go():
+        orig = main.async_session
+        main.async_session = db
+        try:
+            await main.seed_sandbox_read_grants()
+            async with db() as s:
+                return (await s.execute(
+                    select(TablePermission).where(TablePermission.user_email == MASON["email"])
+                )).scalars().all()
+        finally:
+            main.async_session = orig
+
+    rows = _run(_go())
+    # Untouched: still just the single dbo.Units grant, no db-wide row added.
+    assert [(r.database, r.schema_name, r.table_name) for r in rows] == [("Sites", "dbo", "Units")]
 
 
 def test_no_router_checks_sql_without_choosing_its_connection():

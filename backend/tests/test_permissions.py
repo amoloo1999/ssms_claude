@@ -14,6 +14,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.services.permissions import is_select_only, extract_referenced_tables
+from app.services.drivers import get_driver
+
+MSSQL = get_driver("mssql")
 
 
 def test_blocks_classic_writes():
@@ -21,6 +24,49 @@ def test_blocks_classic_writes():
                 "DROP TABLE t", "EXEC sp_who", "SELECT * INTO t2 FROM t"):
         ok, _ = is_select_only(sql)
         assert ok is False, sql
+
+
+def test_blocks_bare_procedure_call():
+    # The hole: a stored proc runs without EXEC when it is the first statement
+    # of a batch, so a verb denylist never sees a write. The shared login is a
+    # sysadmin, so this must be refused.
+    for sql in (
+        "sp_executesql N'DELETE FROM dbo.Units'",
+        "sp_rename 'dbo.Units', 'Units_old'",
+        "sp_who",
+        "xp_cmdshell 'dir'",
+    ):
+        ok, reason = is_select_only(sql)
+        assert ok is False, sql
+        assert "SELECT" in (reason or "")
+
+
+def test_bare_proc_hidden_after_go_is_blocked():
+    # First batch is a clean read; the write hides in the SECOND batch. Only a
+    # driver-aware, per-batch check catches this.
+    sql = "SELECT 1\nGO\nsp_executesql N'DROP TABLE dbo.x'"
+    # Without the driver the two batches are seen as one that opens with SELECT,
+    # and the DROP is inside a string literal — so it passes. This is exactly why
+    # the security gate MUST pass the driver; with it, the bare proc is caught.
+    assert is_select_only(sql)[0] is True
+    assert is_select_only(sql, MSSQL)[0] is False
+
+
+def test_blocks_server_control_and_exfiltration():
+    for sql in (
+        "DBCC FREEPROCCACHE",
+        "KILL 53",
+        "SHUTDOWN",
+        "WAITFOR DELAY '00:00:10'",
+        "SELECT * FROM OPENROWSET('SQLNCLI', 'x', 'SELECT 1')",
+    ):
+        assert is_select_only(sql)[0] is False, sql
+
+
+def test_declare_prefixed_batch_is_refused():
+    # DECLARE could precede anything, so a batch that opens with it is not a
+    # read for a view-only user (they can wrap it in a SELECT if needed).
+    assert is_select_only("DECLARE @x INT = 1; SELECT @x")[0] is False
 
 
 def test_blocks_new_dialect_writes():
@@ -38,6 +84,18 @@ def test_allows_legitimate_selects():
     ok, _ = is_select_only("SELECT call_id, copy_count FROM events")
     assert ok is True
     ok, _ = is_select_only("SELECT * FROM gold.fact_sales WHERE qty > 0")
+    assert ok is True
+    # A leading CTE is a read.
+    ok, _ = is_select_only("WITH c AS (SELECT 1 AS x) SELECT * FROM c")
+    assert ok is True
+    # A parenthesised / UNION read.
+    ok, _ = is_select_only("(SELECT 1) UNION (SELECT 2)")
+    assert ok is True
+    # Leading whitespace / comment before the SELECT.
+    ok, _ = is_select_only("  -- a comment\n  SELECT 1")
+    assert ok is True
+    # Multi-batch, all reads.
+    ok, _ = is_select_only("SELECT 1\nGO\nWITH c AS (SELECT 2 AS y) SELECT * FROM c", MSSQL)
     assert ok is True
 
 

@@ -159,11 +159,32 @@ def has_server_wide_grant(
 
 # ── SQL safety / table extraction ────────────────────────────────────────────
 #
-# These run against user-submitted T-SQL before non-RevMan executions. The
-# read-only check is a denylist — anything matching a forbidden verb is
-# rejected. The table extractor pulls FROM/JOIN targets so we can verify each
-# referenced table is in the user's grant set. CTEs are excluded so they
-# aren't treated as physical tables to permission-check.
+# These run against user-submitted SQL before non-RevMan executions, and the
+# stakes are high: the shared login these run under is a SQL Server sysadmin, so
+# anything that slips through this check executes with full server rights.
+#
+# The read-only check is TWO layers, both applied per executed batch:
+#
+#   1. An allowlist on the FIRST token of each batch — it must be SELECT or WITH.
+#      This is what a denylist alone cannot do. In T-SQL a stored procedure runs
+#      WITHOUT the EXEC keyword when it is the first statement of a batch
+#      (`sp_executesql N'DELETE ...'`), and as a non-first statement it is a
+#      syntax error — so requiring the batch to START with a read keyword is
+#      exactly what blocks a bare procedure call. Batches are split on GO the
+#      same way execution splits them, or the check could pass on the first
+#      batch while a later one runs a bare proc.
+#   2. The verb denylist, still applied to each batch, because a statement that
+#      begins SELECT can still write or exfiltrate: SELECT ... INTO, an embedded
+#      EXEC, or OPENROWSET/OPENQUERY reaching another data source.
+#
+# The table extractor pulls FROM/JOIN targets so we can verify each referenced
+# table is in the user's grant set. CTEs are excluded so they aren't treated as
+# physical tables to permission-check.
+
+# A read batch must open with one of these (an optional leading `(` allows a
+# parenthesised SELECT / UNION). Anything else — EXEC, a bare proc name, DECLARE,
+# DBCC, a write verb — is refused before it runs.
+_READ_LEADING_RE = re.compile(r"^\s*\(*\s*(SELECT|WITH)\b", re.IGNORECASE)
 
 _FORBIDDEN_RE = re.compile(
     r"\b("
@@ -171,6 +192,12 @@ _FORBIDDEN_RE = re.compile(
     # EXEC/CALL: SQL Server EXEC + the Postgres/MySQL/Snowflake CALL equivalent.
     r"EXEC|EXECUTE|CALL|GRANT|REVOKE|DENY|BACKUP|RESTORE|"
     r"BULK\s+INSERT|"
+    # Server-control / DoS verbs. A sysadmin login makes these catastrophic, and
+    # most are already blocked by the first-token rule; listed here so they are
+    # also caught if embedded after a leading SELECT.
+    r"DBCC|KILL|SHUTDOWN|RECONFIGURE|WAITFOR|DISABLE\s+TRIGGER|ENABLE\s+TRIGGER|"
+    # Reaching another data source from inside a query (exfiltration / SSRF).
+    r"OPENROWSET|OPENQUERY|OPENDATASOURCE|"
     # Engine-specific writers: COPY (Postgres), LOAD DATA/XML and REPLACE INTO
     # (MySQL). REPLACE/LOAD are only forbidden in their write forms so the
     # common REPLACE() string function and identifiers stay allowed.
@@ -201,13 +228,41 @@ def _strip_strings_and_comments(sql: str) -> str:
     return cleaned
 
 
-def is_select_only(sql: str) -> tuple[bool, str | None]:
-    """Return (ok, reason). Rejects any DDL/DML/EXEC for non-RevMan users."""
-    cleaned = _strip_strings_and_comments(sql or "")
+def _batch_is_read(batch: str) -> tuple[bool, str | None]:
+    """Whether a single executed batch is a pure read. See _READ_LEADING_RE."""
+    cleaned = _strip_strings_and_comments(batch or "")
+    if not cleaned.strip():
+        # Empty or comment-only batch: nothing executes.
+        return True, None
+    if not _READ_LEADING_RE.match(cleaned):
+        m = re.match(r"\s*\(*\s*([A-Za-z_@#][\w@#$]*)", cleaned)
+        verb = (m.group(1) if m else cleaned.split()[0]).upper()
+        return False, (
+            f"Only SELECT queries are allowed for view-only users (this starts with '{verb}'). "
+            "A stored-procedure call or any statement that changes data is blocked."
+        )
     m = _FORBIDDEN_RE.search(cleaned)
     if m:
         verb = m.group(1).upper().split()[0]
         return False, f"Statement type '{verb}' is not allowed for view-only users."
+    return True, None
+
+
+def is_select_only(sql: str, driver=None) -> tuple[bool, str | None]:
+    """Return (ok, reason). A read must be a SELECT/WITH in EVERY executed batch.
+
+    ``driver`` is threaded through wherever the answer gates real execution, so
+    batches are split on the engine's separator (``GO``) exactly as they will be
+    run. Without it the whole string is treated as one batch — safe for the
+    convenience callers (audit classification, the mobile guard), but the
+    security gate must pass the driver so a bare procedure call hiding after a
+    ``GO`` can't ride in behind a leading SELECT.
+    """
+    batches = driver.split_batches(sql or "") if driver is not None else [sql or ""]
+    for batch in batches:
+        ok, reason = _batch_is_read(batch)
+        if not ok:
+            return False, reason
     return True, None
 
 
@@ -260,6 +315,7 @@ async def check_query_permissions(
     write_policy: str = "read_write",
     surface: str = "desktop",
     sandbox: Sandbox | None = None,
+    driver=None,
 ) -> tuple[bool, dict]:
     """Validate a SQL string before it is executed.
 
@@ -291,7 +347,7 @@ async def check_query_permissions(
     # addresses in MOBILE_WRITE_EMAILS keep their write access there. Runs first
     # because it is the narrowest and cheapest check.
     if not surface_allows_writes(surface, email):
-        ok, _ = is_select_only(sql)
+        ok, _ = is_select_only(sql, driver)
         if not ok:
             return False, {
                 "detail": (
@@ -304,7 +360,7 @@ async def check_query_permissions(
     # Gate 2 — the connection. A read_only server refuses writes from everyone,
     # RevMan included, except the named exemption list.
     if write_policy == "read_only" and not can_write_anywhere(email):
-        ok, _ = is_select_only(sql)
+        ok, _ = is_select_only(sql, driver)
         if not ok:
             return False, {
                 "detail": "This connection is read-only — writes are blocked for every user.",
@@ -314,7 +370,7 @@ async def check_query_permissions(
     if is_revman(user.get("email", "")):
         return True, {}
 
-    ok, reason = is_select_only(sql)
+    ok, reason = is_select_only(sql, driver)
     if not ok and sandbox is None:
         return False, {"detail": reason or "Write operations are not allowed for view-only users.", "missing_tables": []}
 
@@ -363,21 +419,27 @@ async def authorize_query(
     sandbox user's writes switch to the sandbox login, and if its password is
     not configured the write is refused rather than falling back.
     """
+    driver = get_driver(server.dialect)
     sandbox = sandbox_for(user.get("email", ""))
     if sandbox is not None and not sandbox.covers(server, database):
         sandbox = None
 
     allowed, payload = await check_query_permissions(
         db, user, server.id, database, sql,
-        get_driver(server.dialect).default_schema_for(server.database),
+        driver.default_schema_for(server.database),
         write_policy=server.write_policy or "read_write",
         surface=surface,
         sandbox=sandbox,
+        driver=driver,
     )
     if not allowed:
         return False, payload, None
 
-    if sandbox is None or is_select_only(sql)[0]:
+    # Reads use the shared login; only a sandbox WRITE switches. The read test
+    # uses the driver so batches are split on GO — a bare procedure call after a
+    # GO is not a read, so it can never be classified as one and sent out under
+    # the shared sysadmin login.
+    if sandbox is None or is_select_only(sql, driver)[0]:
         return True, {}, await get_connection_string(db, server.id, database)
 
     password = sandbox_password(sandbox.login)
@@ -386,7 +448,6 @@ async def authorize_query(
             "detail": "Your sandbox isn't set up on the server yet. Ask an admin.",
             "missing_tables": [],
         }, None
-    driver = get_driver(server.dialect)
     conn_str = driver.build_connection_string(
         server.host, server.port, sandbox.login, password, database
     )
