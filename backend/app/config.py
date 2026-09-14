@@ -141,7 +141,7 @@ def sandbox_for(email: str | None) -> Sandbox | None:
 def sandbox_password(login: str) -> str:
     """"" when unset, and callers must then refuse the write — never fall back
     to the shared login."""
-    return (get_settings().sandbox_passwords.get(login) or "").strip()
+    return (get_sandbox_passwords().get(login) or "").strip()
 
 
 class Settings(BaseSettings):
@@ -173,9 +173,17 @@ class Settings(BaseSettings):
     scheduler_token_param: str = ""
     aws_region: str = "us-west-1"
 
-    # Sandbox login passwords, keyed by login name. JSON in .env:
-    #   SANDBOX_PASSWORDS={"ssms_mfriday": "..."}
+    # Sandbox login passwords, keyed by login name.
+    #
+    # Two sources, in order (see get_sandbox_passwords):
+    #   1. sandbox_passwords_param — an SSM SecureString whose value is the JSON
+    #      map {"ssms_mfriday": "..."}. Preferred: the secret is encrypted at
+    #      rest, never written to disk on the box, and never passes through an
+    #      SSM RunCommand (whose parameters are logged for 30 days). It has a
+    #      default name so no .env edit is needed to switch a box onto it.
+    #   2. sandbox_passwords — the same JSON inline in .env, the fallback.
     sandbox_passwords: dict[str, str] = {}
+    sandbox_passwords_param: str = "/ssms/sandbox_passwords"
 
     # Anthropic / Claude AI assistant
     anthropic_api_key: str = ""
@@ -225,3 +233,39 @@ def get_scheduler_token() -> str:
             print(f"[config] could not read {name} from Parameter Store: {exc}")
 
     return (settings.scheduler_token or "").strip()
+
+
+@lru_cache
+def get_sandbox_passwords() -> dict[str, str]:
+    """Sandbox login passwords, preferring an SSM SecureString.
+
+    Resolution order (mirrors get_scheduler_token):
+      1. ``SANDBOX_PASSWORDS_PARAM`` — the name of a SecureString whose value is
+         the JSON map ``{"ssms_mfriday": "..."}``. Read with the instance role,
+         so no secret is written to the box's .env and none travels through a
+         logged SSM RunCommand. Has a default name, so switching a box onto
+         Parameter Store needs only the parameter to exist — no .env edit.
+      2. ``SANDBOX_PASSWORDS`` inline in .env — the fallback.
+
+    A Parameter Store failure (missing parameter, no permission, boto3 absent)
+    falls back to .env rather than raising. Cached: one API call per process.
+    Returns {} when neither yields anything, so sandbox_password() comes back ""
+    and the write is refused — unset fails closed, never onto the shared login.
+    """
+    settings = get_settings()
+    name = (settings.sandbox_passwords_param or "").strip()
+
+    if name:
+        try:
+            import json
+            import boto3  # imported lazily so the app runs without it installed
+
+            client = boto3.client("ssm", region_name=settings.aws_region)
+            value = client.get_parameter(Name=name, WithDecryption=True)["Parameter"]["Value"]
+            parsed = json.loads(value) if value else {}
+            if isinstance(parsed, dict) and parsed:
+                return {str(k): str(v) for k, v in parsed.items()}
+        except Exception as exc:  # noqa: BLE001 — any failure means fall back
+            print(f"[config] could not read {name} from Parameter Store: {exc}")
+
+    return dict(settings.sandbox_passwords or {})
