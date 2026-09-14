@@ -75,6 +75,18 @@ def db():
     return session_maker
 
 
+@pytest.fixture(autouse=True)
+def _reset_password_cache(monkeypatch):
+    # get_sandbox_passwords is lru_cached; clear it around every test so one
+    # test's resolved passwords never leak into the next. Blank the SSM param
+    # name by default so no test touches AWS (the Parameter Store tests set it
+    # back explicitly).
+    monkeypatch.setattr(config.get_settings(), "sandbox_passwords_param", "")
+    config.get_sandbox_passwords.cache_clear()
+    yield
+    config.get_sandbox_passwords.cache_clear()
+
+
 @pytest.fixture()
 def password(monkeypatch):
     monkeypatch.setitem(config.get_settings().sandbox_passwords, SANDBOX.login, "sandbox-pw")
@@ -124,6 +136,50 @@ def test_revman_never_gets_a_sandbox(monkeypatch):
 def test_passwords_parse_from_env_json(monkeypatch):
     monkeypatch.setenv("SANDBOX_PASSWORDS", '{"ssms_mfriday": "abc123"}')
     assert config.Settings(_env_file=None).sandbox_passwords == {"ssms_mfriday": "abc123"}
+
+
+def _fake_boto3(monkeypatch, ssm):
+    import sys
+    import types
+
+    monkeypatch.setitem(sys.modules, "boto3", types.SimpleNamespace(client=lambda *a, **k: ssm))
+
+
+def test_password_prefers_parameter_store(monkeypatch):
+    settings = config.get_settings()
+    monkeypatch.setattr(settings, "sandbox_passwords_param", "/ssms/sandbox_passwords")
+    monkeypatch.setitem(settings.sandbox_passwords, SANDBOX.login, "env-value")  # must be ignored
+
+    class SSM:
+        def get_parameter(self, Name, WithDecryption):
+            assert Name == "/ssms/sandbox_passwords" and WithDecryption is True
+            return {"Parameter": {"Value": '{"ssms_mfriday": "from-ssm"}'}}
+
+    _fake_boto3(monkeypatch, SSM())
+    config.get_sandbox_passwords.cache_clear()
+    assert config.sandbox_password(SANDBOX.login) == "from-ssm"
+
+
+def test_parameter_store_failure_falls_back_to_env(monkeypatch):
+    settings = config.get_settings()
+    monkeypatch.setattr(settings, "sandbox_passwords_param", "/ssms/sandbox_passwords")
+    monkeypatch.setitem(settings.sandbox_passwords, SANDBOX.login, "env-value")
+
+    class SSM:
+        def get_parameter(self, **k):
+            raise RuntimeError("parameter not found / no permission")
+
+    _fake_boto3(monkeypatch, SSM())
+    config.get_sandbox_passwords.cache_clear()
+    # A Parameter Store failure must never take the app down; it uses .env.
+    assert config.sandbox_password(SANDBOX.login) == "env-value"
+
+
+def test_no_source_fails_closed(monkeypatch):
+    settings = config.get_settings()
+    monkeypatch.setattr(settings, "sandbox_passwords_param", "")
+    config.get_sandbox_passwords.cache_clear()
+    assert config.sandbox_password(SANDBOX.login) == ""
 
 
 def test_covers_pins_instance_and_database():
