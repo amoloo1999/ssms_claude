@@ -15,6 +15,7 @@ from app.database import init_db, async_session
 from app.models import ServerConnection, TablePermission
 from app.services.drivers import get_driver
 from app.auth import router as auth_router
+from app.request_timing import RequestTimingMiddleware
 from app.routers.servers import router as servers_router
 from app.routers.explorer import router as explorer_router
 from app.routers.query import router as query_router
@@ -152,6 +153,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Added last so it is outermost and its duration covers the other middleware.
+app.add_middleware(RequestTimingMiddleware)
 
 # Routers
 app.include_router(auth_router)
