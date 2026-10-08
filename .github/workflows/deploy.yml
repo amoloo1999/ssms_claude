@@ -41,10 +41,12 @@ jobs:
                 "& $npm run build 2>&1 | Out-Host; if ($LASTEXITCODE -ne 0) { throw \"npm build failed: $LASTEXITCODE\" }",
                 "$ErrorActionPreference = \"Stop\"",
                 "Set-Location C:\\ssms_claude",
-                "& $nssm restart ssms-claude",
-                "Start-Sleep -Seconds 5",
-                "$s = (Invoke-WebRequest -Uri http://localhost:8080/health -UseBasicParsing -TimeoutSec 15).StatusCode",
-                "if ($s -ne 200) { throw \"Health check failed: $s\" }",
+                "& $nssm stop ssms-claude",
+                "$deadline = (Get-Date).AddSeconds(60); while ((Get-Service ssms-claude).Status -ne \"Stopped\" -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }",
+                "Write-Host \"Service status before start: $((Get-Service ssms-claude).Status)\"",
+                "& $nssm start ssms-claude",
+                "$ok = $false; $deadline = (Get-Date).AddSeconds(90); while (-not $ok -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 3; try { $ok = (Invoke-WebRequest -Uri http://localhost:8080/health -UseBasicParsing -TimeoutSec 5).StatusCode -eq 200 } catch { } }",
+                "if (-not $ok) { throw \"Health check failed: no 200 from /health within 90s (service: $((Get-Service ssms-claude).Status))\" }",
                 "Write-Host \"Deploy OK\""
               ],
               "executionTimeout": ["900"]
